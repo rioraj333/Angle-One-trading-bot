@@ -18,6 +18,20 @@
     }
   </div>
 
+  @if (runState()?.events?.length) {
+    <div class="activity-log">
+      <div class="side-title">Activity Log</div>
+      <div class="activity-log-list">
+        @for (e of runState()!.events!; track $index) {
+          <div class="activity-log-row">
+            <span class="activity-log-time">{{ fmtEventTime(e.time) }}</span>
+            <span class="activity-log-msg">{{ e.message }}</span>
+          </div>
+        }
+      </div>
+    </div>
+  }
+
   <div class="watch-layout">
 
     <div class="settings-card">
@@ -297,10 +311,15 @@
       </div>
 
       @if (historyOpen()) {
+        <div class="mode-toggle history-mode-toggle">
+          <button [class.active]="historyMode() === 'PAPER'" (click)="setHistoryMode('PAPER')">Paper</button>
+          <button [class.active]="historyMode() === 'LIVE'" (click)="setHistoryMode('LIVE')">Live</button>
+        </div>
+
         @if (historyLoading()) {
           <p class="empty-msg">Loading history...</p>
         } @else if (tradeHistory().length === 0) {
-          <p class="empty-msg">No trades recorded yet.</p>
+          <p class="empty-msg">No {{ historyMode() === 'PAPER' ? 'paper' : 'live' }} trades recorded yet.</p>
         } @else {
           <div class="history-table-wrap">
             <table class="history-table">
@@ -308,7 +327,7 @@
                 <tr>
                   <th>Entry Time</th><th>Mode</th><th>Index</th><th>Side</th><th>Strike</th>
                   <th>Entry</th><th>Target</th><th>SL</th><th>Exit</th><th>Reason</th>
-                  <th>Max Profit</th><th>Max Drawdown</th><th>Realized P&amp;L</th><th>Status</th>
+                  <th>Max Profit</th><th>Max Drawdown</th><th>Realized P&amp;L</th><th>Status</th><th></th><th></th>
                 </tr>
               </thead>
               <tbody>
@@ -328,6 +347,24 @@
                     <td [class.up]="(t.maxDrawdown ?? 0) >= 0" [class.down]="(t.maxDrawdown ?? 0) < 0">{{ t.maxDrawdown != null ? fmtPnl(t.maxDrawdown) : '—' }}</td>
                     <td [class.up]="(t.realizedPnl ?? 0) >= 0" [class.down]="(t.realizedPnl ?? 0) < 0">{{ t.realizedPnl != null ? fmtPnl(t.realizedPnl) : '—' }}</td>
                     <td><span class="history-status" [class.open-status]="t.status === 'OPEN'">{{ t.status }}</span></td>
+                    <td>
+                      <button class="btn-view-row" (click)="viewTradeLog(t)" title="View log">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                          <circle cx="12" cy="12" r="3"/>
+                        </svg>
+                      </button>
+                    </td>
+                    <td>
+                      <button class="btn-delete-row" (click)="deleteTrade(t.id)" title="Delete">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <polyline points="3 6 5 6 21 6"/>
+                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                          <line x1="10" y1="11" x2="10" y2="17"/>
+                          <line x1="14" y1="11" x2="14" y2="17"/>
+                        </svg>
+                      </button>
+                    </td>
                   </tr>
                 }
               </tbody>
@@ -338,4 +375,33 @@
     </div>
 
   </div>
+
+  @if (viewingTradeId() !== null) {
+    <div class="overlay" (click)="closeTradeLog()">
+      <div class="log-modal" (click)="$event.stopPropagation()">
+        <div class="log-modal-header">
+          <h3>Trade Log</h3>
+          <button class="op-close" (click)="closeTradeLog()">&#10005;</button>
+        </div>
+        <div class="log-modal-body">
+          @if (viewingEventsLoading()) {
+            <p class="empty-msg">Loading log...</p>
+          } @else if (viewingEventsError()) {
+            <p class="empty-msg">{{ viewingEventsError() }}</p>
+          } @else if (viewingEvents().length === 0) {
+            <p class="empty-msg">No log entries found.</p>
+          } @else {
+            <div class="activity-log-list modal-log-list">
+              @for (e of viewingEvents(); track $index) {
+                <div class="activity-log-row">
+                  <span class="activity-log-time">{{ fmtEventTime(e.time) }}</span>
+                  <span class="activity-log-msg">{{ e.message }}</span>
+                </div>
+              }
+            </div>
+          }
+        </div>
+      </div>
+    </div>
+  }
 </div>

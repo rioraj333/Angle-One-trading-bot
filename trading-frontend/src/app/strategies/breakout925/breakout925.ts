@@ -111,6 +111,12 @@ export class Breakout925Component implements OnInit, OnDestroy {
   tradeHistory = signal<Breakout925TradeDto[]>([]);
   historyOpen = signal(false);
   historyLoading = signal(false);
+  historyMode = signal<'PAPER' | 'LIVE'>('PAPER');
+
+  viewingTradeId = signal<number | null>(null);
+  viewingEvents = signal<{ time: string; type: string; message: string }[]>([]);
+  viewingEventsLoading = signal(false);
+  viewingEventsError = signal('');
 
   private indexPollSub?: Subscription;
   private stateSub?: Subscription;
@@ -331,7 +337,7 @@ export class Breakout925Component implements OnInit, OnDestroy {
 
   loadHistory(): void {
     this.historyLoading.set(true);
-    this.tradeHistoryService.list().subscribe({
+    this.tradeHistoryService.list(this.historyMode()).subscribe({
       next: (trades) => {
         this.historyLoading.set(false);
         this.tradeHistory.set(trades);
@@ -340,6 +346,47 @@ export class Breakout925Component implements OnInit, OnDestroy {
         this.historyLoading.set(false);
       },
     });
+  }
+
+  setHistoryMode(mode: 'PAPER' | 'LIVE'): void {
+    if (this.historyMode() === mode) return;
+    this.historyMode.set(mode);
+    this.loadHistory();
+  }
+
+  deleteTrade(id: number): void {
+    if (!confirm('Delete this trade record? This cannot be undone.')) return;
+    this.tradeHistoryService.delete(id).subscribe({
+      next: () => this.tradeHistory.set(this.tradeHistory().filter((t) => t.id !== id)),
+      error: () => {},
+    });
+  }
+
+  viewTradeLog(trade: Breakout925TradeDto): void {
+    this.viewingTradeId.set(trade.id);
+    this.viewingEvents.set([]);
+    this.viewingEventsError.set('');
+
+    if (!trade.runId) {
+      this.viewingEventsError.set('No log available for this trade (recorded before logging was added).');
+      return;
+    }
+
+    this.viewingEventsLoading.set(true);
+    this.breakout925Service.getRunEvents(trade.runId).subscribe({
+      next: (events) => {
+        this.viewingEventsLoading.set(false);
+        this.viewingEvents.set(events);
+      },
+      error: () => {
+        this.viewingEventsLoading.set(false);
+        this.viewingEventsError.set('Failed to load log.');
+      },
+    });
+  }
+
+  closeTradeLog(): void {
+    this.viewingTradeId.set(null);
   }
 
   applyPreset(idStr: string): void {
@@ -393,6 +440,13 @@ export class Breakout925Component implements OnInit, OnDestroy {
 
   fmt(n: number | undefined | null): string {
     return n === undefined || n === null ? '—' : n.toFixed(2);
+  }
+
+  /** Java's LocalDateTime.toString() can carry up to 9 fractional digits; JS Date only reliably parses 3. */
+  fmtEventTime(iso: string): string {
+    const trimmed = iso.replace(/(\.\d{3})\d*$/, '$1');
+    const d = new Date(trimmed);
+    return isNaN(d.getTime()) ? iso : d.toLocaleTimeString('en-IN', { hour12: false });
   }
 
   fmtPnl(n: number | undefined | null): string {

@@ -3,6 +3,7 @@ package com.example.tradeAutomation.Controller;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -69,5 +70,10 @@ public class Breakout925TradeController {
         trade.setStatus("CLOSED");
         trade.setExitTime(LocalDateTime.now());
         return repository.save(trade);
+    }
+
+    @DeleteMapping("/{id}")
+    public void delete(@PathVariable Long id) {
+        repository.deleteById(id);
     }
 }

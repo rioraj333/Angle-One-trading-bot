@@ -4,6 +4,7 @@ import { Observable } from 'rxjs';
 
 export interface Breakout925TradeDto {
   id: number;
+  runId?: number | null;
   mode: 'PAPER' | 'LIVE';
   indexName: string;
   side: 'CE' | 'PE';
@@ -63,5 +64,9 @@ export class Breakout925TradeService {
 
   close(id: number, request: CloseTradeRequest): Observable<Breakout925TradeDto> {
     return this.http.put<Breakout925TradeDto>(`${this.apiUrl}/${id}/close`, request);
+  }
+
+  delete(id: number): Observable<void> {
+    return this.http.delete<void>(`${this.apiUrl}/${id}`);
   }
 }
