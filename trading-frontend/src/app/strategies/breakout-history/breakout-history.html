@@ -1,0 +1,52 @@
+<div class="history-page">
+  <header class="page-header">
+    <a routerLink="/strategies/breakout" class="back-link">&larr; Breakout strategy</a>
+    <h1>Run history</h1>
+  </header>
+
+  <div class="history-layout">
+    <div class="run-list">
+      @if (runs().length === 0) {
+        <p class="empty-msg">No runs yet.</p>
+      }
+      @for (r of runs(); track r.id) {
+        <button class="run-row" [class.selected]="selectedId() === r.id" (click)="select(r.id)">
+          <span class="run-date">{{ r.runDate }}</span>
+          <span class="run-status" [attr.data-status]="r.status">{{ r.status }}</span>
+          <span class="run-pnl" [class.up]="r.realizedPnlPoints >= 0" [class.down]="r.realizedPnlPoints < 0">
+            {{ r.realizedPnlPoints >= 0 ? '+' : '' }}{{ fmt(r.realizedPnlPoints) }}
+          </span>
+        </button>
+      }
+    </div>
+
+    <div class="run-detail">
+      @if (!selectedRun()) {
+        <p class="empty-msg">Select a run to see its detail.</p>
+      } @else {
+        <div class="detail-summary">
+          <div><span>Date</span><strong>{{ selectedRun()!.runDate }}</strong></div>
+          <div><span>Status</span><strong>{{ selectedRun()!.status }}</strong></div>
+          <div><span>Mode</span><strong>{{ selectedRun()!.mode }}</strong></div>
+          <div><span>Quantity</span><strong>{{ selectedRun()!.quantity }}</strong></div>
+          <div><span>CE Strike</span><strong>{{ selectedRun()!.ceStrike || '—' }}</strong></div>
+          <div><span>PE Strike</span><strong>{{ selectedRun()!.peStrike || '—' }}</strong></div>
+          <div><span>Realized P&amp;L</span><strong [class.up]="(selectedRun()!.realizedPnlPoints || 0) >= 0" [class.down]="(selectedRun()!.realizedPnlPoints || 0) < 0">{{ fmt(selectedRun()!.realizedPnlPoints) }} pts</strong></div>
+        </div>
+
+        <div class="timeline-card">
+          <div class="side-title">Timeline</div>
+          <div class="timeline">
+            @for (e of (selectedRun()!.events || []).slice().reverse(); track e.time + e.type) {
+              <div class="timeline-row">
+                <span class="timeline-time">{{ e.time.slice(11, 19) }}</span>
+                <span class="timeline-type">{{ e.type }}</span>
+                <span class="timeline-msg">{{ e.message }}</span>
+              </div>
+            }
+          </div>
+        </div>
+      }
+    </div>
+  </div>
+</div>

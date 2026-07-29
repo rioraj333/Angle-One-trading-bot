@@ -1,0 +1,14 @@
+# Copy this file to application-local.properties and fill in real values.
+# application-local.properties is gitignored and must never be committed.
+
+# The interactive login page still works without these. These are only needed
+# if you want the backend to auto-login itself each trading morning.
+angleone.api.key=YOUR_SMARTAPI_API_KEY
+angleone.client.id=YOUR_ANGEL_ONE_CLIENT_CODE
+angleone.password=YOUR_ANGEL_ONE_MPIN
+angleone.totp.secret=YOUR_TOTP_SECRET_FROM_QR_SETUP
+angleone.autologin.enabled=true
+
+spring.datasource.url=jdbc:postgresql://YOUR_HOST/YOUR_DB?sslmode=require
+spring.datasource.username=YOUR_DB_USERNAME
+spring.datasource.password=YOUR_DB_PASSWORD

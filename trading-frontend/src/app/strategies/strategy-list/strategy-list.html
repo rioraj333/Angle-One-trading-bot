@@ -1,0 +1,23 @@
+<div class="strategies-page">
+  <header class="page-header">
+    <a routerLink="/dashboard" class="back-link">&larr; Dashboard</a>
+    <h1>Strategies</h1>
+  </header>
+
+  <div class="strategy-grid">
+    @for (s of strategies; track s.name + $index) {
+      @if (s.route) {
+        <a class="strategy-card" [routerLink]="s.route">
+          <h2>{{ s.name }}</h2>
+          <p>{{ s.description }}</p>
+          <span class="card-cta">Open &rarr;</span>
+        </a>
+      } @else {
+        <div class="strategy-card disabled">
+          <h2>{{ s.name }}</h2>
+          <p>{{ s.description }}</p>
+        </div>
+      }
+    }
+  </div>
+</div>

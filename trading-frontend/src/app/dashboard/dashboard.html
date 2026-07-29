@@ -1,0 +1,418 @@
+<div class="dashboard">
+
+  <nav class="navbar">
+    <div class="nav-left">
+      <button class="btn-sidebar-toggle" (click)="toggleSidebar()" title="Toggle menu">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <div class="nav-logo">
+        <div class="logo-icon">A1</div>
+        <span class="logo-text">Angel One Bot</span>
+      </div>
+    </div>
+    <div class="nav-right">
+      <span class="market-status" [class.closed]="!marketStatus().isOpen">
+        <span class="status-dot"></span> {{ marketStatus().statusLabel }}
+      </span>
+      <span class="clock">{{ currentTime() | date:'HH:mm:ss' }}</span>
+      <div class="user-chip">
+        <span class="user-avatar">{{ (clientName() || clientId()).charAt(0).toUpperCase() }}</span>
+        <div class="user-info">
+          <span class="user-name">{{ clientName() || clientId() }}</span>
+          <span class="user-id">{{ clientId() }}</span>
+        </div>
+      </div>
+      <a routerLink="/strategies" class="btn-strategies">Strategies</a>
+      <button class="btn-refresh" (click)="loadAllData()" [disabled]="loadingData()" title="Refresh data">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" [class.spinning]="loadingData()">
+          <polyline points="23 4 23 10 17 10"/>
+          <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+        </svg>
+      </button>
+      <button class="btn-logout" (click)="logout()">Logout</button>
+    </div>
+  </nav>
+
+  @if (loadingData()) {
+    <div class="data-banner loading">
+      <span class="mini-spinner"></span>
+      Loading live data from SmartAPI...
+    </div>
+  }
+  @if (dataError() && !loadingData()) {
+    <div class="data-banner error">
+      {{ dataError() }}
+      <button (click)="loadAllData()">Retry</button>
+    </div>
+  }
+
+  <div class="main-layout">
+
+    <aside class="side-menu" [class.collapsed]="!sidebarOpen()">
+      <button class="menu-item" [class.active]="activeSection() === 'home'" (click)="setSection('home')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9.5L12 3l9 6.5"/><path d="M5 9.5V21h14V9.5"/><path d="M9 21v-6h6v6"/></svg>
+        <span>Home</span>
+      </button>
+      <button class="menu-item" [class.active]="activeSection() === 'positions'" (click)="setSection('positions')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        <span>Position</span>
+        <span class="menu-badge">{{ positions().length }}</span>
+      </button>
+      <button class="menu-item" [class.active]="activeSection() === 'orders'" (click)="setSection('orders')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        <span>Order</span>
+        <span class="menu-badge">{{ orders().length }}</span>
+      </button>
+      <button class="menu-item" [class.active]="activeSection() === 'holdings'" (click)="setSection('holdings')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8V7l-3-4H6L3 7v1"/><path d="M3 8h18v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8z"/><path d="M12 12v4"/><path d="M9 12v2"/><path d="M15 12v2"/></svg>
+        <span>Holding</span>
+        <span class="menu-badge">{{ holdings().length }}</span>
+      </button>
+      <button class="menu-item" [class.active]="activeSection() === 'funds'" (click)="setSection('funds')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/><path d="M6 15h4"/></svg>
+        <span>Funds and Margin</span>
+      </button>
+      <button class="menu-item" [class.active]="activeSection() === 'strategies'" (click)="setSection('strategies')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h7l-1 8 11-14h-7l1-6z"/></svg>
+        <span>Strategies</span>
+        <span class="menu-badge">{{ strategyPresets().length }}</span>
+      </button>
+
+      <div class="menu-pnl" [class.profit]="totalPnl() >= 0" [class.loss]="totalPnl() < 0">
+        <div class="pnl-label">Today's P&amp;L</div>
+        <div class="pnl-value">{{ totalPnl() >= 0 ? '+' : '' }}&#8377;{{ formatCurrency(totalPnl()) }}</div>
+        <div class="pnl-pct" [class.up]="totalPnl() >= 0" [class.down]="totalPnl() < 0">
+          {{ totalPnlPct() >= 0 ? '+' : '' }}{{ totalPnlPct() | number:'1.2-2' }}%
+        </div>
+      </div>
+    </aside>
+
+    <main class="content-area">
+
+      @if (activeSection() === 'home') {
+        <div class="home-page">
+          <div class="home-hero">
+            <div class="home-greeting">
+              <h1>{{ greeting() }}, {{ clientName() || clientId() }}</h1>
+              <p class="home-sub">
+                <span class="market-status" [class.closed]="!marketStatus().isOpen">
+                  <span class="status-dot"></span> {{ marketStatus().statusLabel }}
+                </span>
+                &middot; {{ currentTime() | date:'EEEE, d MMM y' }}
+              </p>
+            </div>
+            <div class="home-pnl-hero" [class.profit]="totalPnl() >= 0" [class.loss]="totalPnl() < 0">
+              <span class="home-pnl-label">Today&rsquo;s P&amp;L</span>
+              <span class="home-pnl-value">{{ totalPnl() >= 0 ? '+' : '' }}&#8377;{{ formatCurrency(totalPnl()) }}</span>
+              <span class="home-pnl-pct" [class.up]="totalPnl() >= 0" [class.down]="totalPnl() < 0">
+                {{ totalPnlPct() >= 0 ? '+' : '' }}{{ totalPnlPct() | number:'1.2-2' }}%
+              </span>
+            </div>
+          </div>
+
+          <div class="home-stats">
+            <button class="home-stat-card" (click)="setSection('positions')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+              <div>
+                <span class="home-stat-value">{{ positions().length }}</span>
+                <span class="home-stat-label">Open Positions</span>
+              </div>
+            </button>
+            <button class="home-stat-card" (click)="setSection('orders')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+              <div>
+                <span class="home-stat-value">{{ orders().length }}</span>
+                <span class="home-stat-label">Orders Today</span>
+              </div>
+            </button>
+            <button class="home-stat-card" (click)="setSection('holdings')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8V7l-3-4H6L3 7v1"/><path d="M3 8h18v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8z"/><path d="M12 12v4"/><path d="M9 12v2"/><path d="M15 12v2"/></svg>
+              <div>
+                <span class="home-stat-value">{{ holdings().length }}</span>
+                <span class="home-stat-label">Holdings</span>
+              </div>
+            </button>
+            <button class="home-stat-card" (click)="setSection('funds')">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/><path d="M6 15h4"/></svg>
+              <div>
+                <span class="home-stat-value">&#8377;{{ formatCurrency(funds()?.availablecash || '0') }}</span>
+                <span class="home-stat-label">Available Cash</span>
+              </div>
+            </button>
+          </div>
+
+          <div class="home-quick-actions">
+            <h2 class="section-title">Quick Actions</h2>
+            <div class="home-actions-row">
+              <a routerLink="/strategies" class="home-action-btn primary">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h7l-1 8 11-14h-7l1-6z"/></svg>
+                Go to Strategies
+              </a>
+              <button class="home-action-btn" (click)="setSection('strategies')">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3l14 9-14 9V3z"/></svg>
+                Deploy Strategy
+              </button>
+              <button class="home-action-btn" (click)="loadAllData()" [disabled]="loadingData()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" [class.spinning]="loadingData()"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                Refresh Data
+              </button>
+            </div>
+          </div>
+        </div>
+      }
+
+      @if (activeSection() === 'positions') {
+        @if (positions().length === 0 && !loadingData()) {
+          <div class="empty-state"><p>No open positions today</p></div>
+        } @else {
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Symbol</th><th>Exchange</th><th>Product</th><th>Net Qty</th>
+                  <th>Avg Price</th><th>LTP</th><th>P&amp;L</th><th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (pos of positions(); track pos.tradingsymbol) {
+                  <tr [class.profit-row]="formatNum(pos.pnl) >= 0" [class.loss-row]="formatNum(pos.pnl) < 0">
+                    <td class="sym-cell">{{ pos.tradingsymbol }}</td>
+                    <td><span class="exch-badge">{{ pos.exchange }}</span></td>
+                    <td>{{ pos.producttype }}</td>
+                    <td [class.up]="formatNum(pos.netqty) > 0" [class.down]="formatNum(pos.netqty) < 0">{{ pos.netqty }}</td>
+                    <td>&#8377;{{ formatCurrency(pos.avgnetprice) }}</td>
+                    <td>&#8377;{{ formatCurrency(pos.ltp) }}</td>
+                    <td [class]="pnlClass(pos.pnl)">{{ formatNum(pos.pnl) >= 0 ? '+' : '' }}&#8377;{{ formatCurrency(pos.pnl) }}</td>
+                    <td>
+                      <div class="action-btns">
+                        <button class="btn-buy-sm" (click)="openOrderPanel(pos.tradingsymbol, pos.symboltoken, pos.exchange, 'BUY', formatNum(pos.ltp))">B</button>
+                        <button class="btn-sell-sm" (click)="openOrderPanel(pos.tradingsymbol, pos.symboltoken, pos.exchange, 'SELL', formatNum(pos.ltp))">S</button>
+                      </div>
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        }
+      }
+
+      @if (activeSection() === 'orders') {
+        @if (orders().length === 0 && !loadingData()) {
+          <div class="empty-state"><p>No orders today</p></div>
+        } @else {
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Order ID</th><th>Symbol</th><th>Type</th><th>Product</th>
+                  <th>Qty</th><th>Price</th><th>Order Type</th><th>Status</th><th>Time</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (ord of orders(); track ord.orderid) {
+                  <tr>
+                    <td class="order-id">{{ ord.orderid }}</td>
+                    <td class="sym-cell">{{ ord.tradingsymbol }}</td>
+                    <td>
+                      <span class="type-badge" [class.buy-badge]="ord.transactiontype === 'BUY'" [class.sell-badge]="ord.transactiontype === 'SELL'">
+                        {{ ord.transactiontype }}
+                      </span>
+                    </td>
+                    <td>{{ ord.producttype }}</td>
+                    <td>{{ ord.quantity }}</td>
+                    <td>&#8377;{{ formatCurrency(ord.price) }}</td>
+                    <td>{{ ord.ordertype }}</td>
+                    <td><span class="status-badge" [class]="orderStatusClass(ord.status)">{{ ord.status }}</span></td>
+                    <td class="time-cell">{{ ord.updatetime }}</td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        }
+      }
+
+      @if (activeSection() === 'holdings') {
+        @if (holdings().length === 0 && !loadingData()) {
+          <div class="empty-state"><p>No holdings found</p></div>
+        } @else {
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Symbol</th><th>Exchange</th><th>Qty</th><th>Avg Price</th>
+                  <th>LTP</th><th>P&amp;L</th><th>P&amp;L %</th><th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (h of holdings(); track h.tradingsymbol) {
+                  <tr [class.profit-row]="formatNum(h.profitandloss) >= 0" [class.loss-row]="formatNum(h.profitandloss) < 0">
+                    <td class="sym-cell">{{ h.tradingsymbol }}</td>
+                    <td><span class="exch-badge">{{ h.exchange }}</span></td>
+                    <td>{{ h.quantity }}</td>
+                    <td>&#8377;{{ formatCurrency(h.averageprice) }}</td>
+                    <td>&#8377;{{ formatCurrency(h.ltp) }}</td>
+                    <td [class]="pnlClass(h.profitandloss)">{{ formatNum(h.profitandloss) >= 0 ? '+' : '' }}&#8377;{{ formatCurrency(h.profitandloss) }}</td>
+                    <td [class]="pnlClass(h.pnlpercentage)">{{ formatNum(h.pnlpercentage) >= 0 ? '+' : '' }}{{ formatNum(h.pnlpercentage) | number:'1.2-2' }}%</td>
+                    <td><button class="btn-sell-sm" (click)="openOrderPanel(h.tradingsymbol, h.symboltoken, h.exchange, 'SELL', formatNum(h.ltp))">Sell</button></td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        }
+      }
+
+      @if (activeSection() === 'funds') {
+        <div class="funds-page">
+          <h2 class="section-title">Funds &amp; Margin</h2>
+          @if (funds()) {
+            <div class="funds-grid">
+              <div class="fund-item">
+                <span class="fund-label">Available Cash</span>
+                <span class="fund-value">&#8377;{{ formatCurrency(funds()!.availablecash) }}</span>
+              </div>
+              <div class="fund-item">
+                <span class="fund-label">Net Balance</span>
+                <span class="fund-value">&#8377;{{ formatCurrency(funds()!.net) }}</span>
+              </div>
+              <div class="fund-item">
+                <span class="fund-label">Intraday Limit</span>
+                <span class="fund-value">&#8377;{{ formatCurrency(funds()!.availableintradaypayin) }}</span>
+              </div>
+              <div class="fund-item">
+                <span class="fund-label">Utilised</span>
+                <span class="fund-value down">&#8377;{{ formatCurrency(funds()!.utiliseddebits) }}</span>
+              </div>
+              <div class="fund-item">
+                <span class="fund-label">M2M Realized</span>
+                <span class="fund-value" [class]="pnlClass(funds()!.m2mrealized)">&#8377;{{ formatCurrency(funds()!.m2mrealized) }}</span>
+              </div>
+              <div class="fund-item">
+                <span class="fund-label">M2M Unrealized</span>
+                <span class="fund-value" [class]="pnlClass(funds()!.m2munrealized)">&#8377;{{ formatCurrency(funds()!.m2munrealized) }}</span>
+              </div>
+            </div>
+          } @else if (!loadingData()) {
+            <p class="empty-msg">No fund data</p>
+          }
+        </div>
+      }
+
+      @if (activeSection() === 'strategies') {
+        <div class="funds-page">
+          <h2 class="section-title">Strategies</h2>
+
+          @if (pendingDeploy(); as pd) {
+            <div class="deploy-pending-banner">
+              <span>Auto-deploy for <strong>{{ pd.presetName }}</strong> will pick strikes at
+                <strong>{{ pd.triggerAt | date:'HH:mm' }}</strong> (premium range from-time + 2 min).</span>
+              <button class="btn-secondary" (click)="cancelPendingDeploy()">Cancel</button>
+            </div>
+            @if (cancelError()) { <p class="error-msg">{{ cancelError() }}</p> }
+          }
+
+          @if (presetsLoading()) {
+            <p class="empty-msg">Loading presets...</p>
+          } @else if (strategyPresets().length === 0) {
+            <p class="empty-msg">No saved presets yet — save one from the Breakout925 page's Settings panel.</p>
+          } @else {
+            <div class="preset-card-grid">
+              @for (p of strategyPresets(); track p.id) {
+                <div class="preset-card">
+                  <div class="preset-card-header">
+                    <h3>{{ p.name }}</h3>
+                    <div class="preset-tags">
+                      <span class="status-badge" [class.status-complete]="p.mode === 'PAPER'" [class.status-rejected]="p.mode === 'LIVE'">{{ p.mode }}</span>
+                      <span class="selection-mode-tag">{{ p.selectionMode }}</span>
+                    </div>
+                  </div>
+                  <div class="preset-card-body">
+                    <span>{{ p.indexName }} &middot; premium {{ p.premiumFrom }}&ndash;{{ p.premiumTo }}</span>
+                    <span>{{ p.candleFromTime }}&ndash;{{ p.candleToTime }} &middot; {{ p.quantity }} lot &middot; target {{ p.targetPoints }}pts</span>
+                  </div>
+                  <div class="preset-card-actions">
+                    <button class="btn-secondary" (click)="deployPreset(p)"
+                            [disabled]="deployingId() !== null || (p.selectionMode === 'AUTO' && pendingDeploy() !== null)">
+                      {{ deployingId() === p.id ? 'Deploying...' : 'Deploy' }}
+                    </button>
+                    <button class="btn-secondary" (click)="deletePreset(p.id)">Delete</button>
+                    @if (deployResult()[p.id] || pendingDeploy()?.presetId === p.id) {
+                      <a class="btn-secondary" routerLink="/strategies/breakout925">View</a>
+                    }
+                  </div>
+                  @if (deployResult()[p.id]; as r) {
+                    <p class="deploy-result" [class.error]="r.status === 'error'">{{ r.message }}</p>
+                  }
+                </div>
+              }
+            </div>
+          }
+        </div>
+      }
+
+    </main>
+  </div>
+
+  @if (showOrderPanel()) {
+    <div class="overlay" (click)="closeOrderPanel()">
+      <div class="order-panel" (click)="$event.stopPropagation()">
+        <div class="op-header" [class.buy-header]="orderSide() === 'BUY'" [class.sell-header]="orderSide() === 'SELL'">
+          <div>
+            <h3>{{ orderSide() }} &mdash; {{ orderSymbol }}</h3>
+            <span class="op-sub">{{ orderExchange }} &middot; INTRADAY</span>
+          </div>
+          <button class="op-close" (click)="closeOrderPanel()">&#10005;</button>
+        </div>
+
+        <div class="op-body">
+          <div class="side-toggle">
+            <button [class.active-buy]="orderSide() === 'BUY'" (click)="orderSide.set('BUY')">BUY</button>
+            <button [class.active-sell]="orderSide() === 'SELL'" (click)="orderSide.set('SELL')">SELL</button>
+          </div>
+
+          <div class="op-field">
+            <label>Order Type</label>
+            <div class="type-toggle">
+              <button [class.active]="orderType() === 'MARKET'" (click)="orderType.set('MARKET')">Market</button>
+              <button [class.active]="orderType() === 'LIMIT'" (click)="orderType.set('LIMIT')">Limit</button>
+            </div>
+          </div>
+
+          <div class="op-field">
+            <label>Quantity</label>
+            <input type="number" [(ngModel)]="orderQty" min="1" class="op-input" />
+          </div>
+
+          @if (orderType() === 'LIMIT') {
+            <div class="op-field">
+              <label>Price (&#8377;)</label>
+              <input type="number" [(ngModel)]="orderPrice" class="op-input" />
+            </div>
+          }
+
+          <div class="op-value">
+            <span>Order Value</span>
+            <strong>&#8377;{{ formatCurrency(orderQty * orderPrice) }}</strong>
+          </div>
+
+          @if (orderResult()) {
+            <div class="order-result" [class.success]="!orderResult().toLowerCase().includes('fail')" [class.fail]="orderResult().toLowerCase().includes('fail')">
+              {{ orderResult() }}
+            </div>
+          }
+
+          <button class="op-submit" [class.op-buy]="orderSide() === 'BUY'" [class.op-sell]="orderSide() === 'SELL'" (click)="placeOrder()" [disabled]="orderLoading()">
+            @if (orderLoading()) {
+              <span class="mini-spinner"></span> Placing...
+            } @else {
+              Place {{ orderSide() }} Order
+            }
+          </button>
+        </div>
+      </div>
+    </div>
+  }
+
+</div>

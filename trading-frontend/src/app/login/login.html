@@ -1,0 +1,132 @@
+<div class="login-page">
+  <div class="login-card">
+
+    <!-- Brand -->
+    <div class="brand">
+      <div class="logo">
+        <div class="logo-icon">A1</div>
+        <div class="logo-text">
+          <span class="brand-name">Angel One Bot</span>
+          <span class="brand-tag">SmartAPI Connect</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step Indicator -->
+    <div class="steps">
+      <div class="step" [class.active]="step() === 'credentials'" [class.done]="step() === 'totp'">
+        <div class="step-circle">
+          @if (step() === 'totp') { <span>&#10003;</span> } @else { <span>1</span> }
+        </div>
+        <span class="step-label">Credentials</span>
+      </div>
+      <div class="step-line" [class.active]="step() === 'totp'"></div>
+      <div class="step" [class.active]="step() === 'totp'">
+        <div class="step-circle"><span>2</span></div>
+        <span class="step-label">TOTP</span>
+      </div>
+    </div>
+
+    <!-- STEP 1 — Client ID + Password -->
+    @if (step() === 'credentials') {
+      <div class="form-section">
+        <h2 class="form-title">Connect your broker</h2>
+        <p class="form-subtitle">Enter your Angel One Client ID and MPIN/password</p>
+
+        <div class="form-group">
+          <label for="clientId">Client ID</label>
+          <input
+            id="clientId"
+            type="text"
+            [(ngModel)]="clientId"
+            placeholder="e.g. A123456"
+            class="form-input"
+            autocomplete="username"
+            (keyup.enter)="onContinue()"
+          />
+        </div>
+
+        <div class="form-group">
+          <label for="password">Password / MPIN</label>
+          <div class="input-wrapper">
+            <input
+              id="password"
+              [type]="showPassword ? 'text' : 'password'"
+              [(ngModel)]="password"
+              placeholder="Enter your MPIN"
+              class="form-input"
+              autocomplete="current-password"
+              (keyup.enter)="onContinue()"
+            />
+            <button class="toggle-pw" type="button" (click)="togglePassword()" tabindex="-1">
+              {{ showPassword ? 'Hide' : 'Show' }}
+            </button>
+          </div>
+        </div>
+
+        @if (error()) {
+          <div class="error-msg">{{ error() }}</div>
+        }
+
+        <button class="btn-primary" (click)="onContinue()">Continue</button>
+      </div>
+    }
+
+    <!-- STEP 2 — TOTP -->
+    @if (step() === 'totp') {
+      <div class="form-section">
+        <button class="back-btn" (click)="goBack()" [disabled]="loading()">&larr; Back</button>
+
+        <h2 class="form-title">Enter TOTP</h2>
+        <p class="form-subtitle">
+          Open your authenticator app and enter the 6-digit code for
+          <strong class="highlight">{{ clientId }}</strong>
+        </p>
+
+        <div class="form-group">
+          <label>6-digit TOTP code</label>
+          <div class="otp-area" (click)="focusTotpInput()">
+            <div class="otp-boxes">
+              @for (digit of totpDigits; track $index) {
+                <div class="otp-box" [class.filled]="digit !== ''" [class.active]="totp.length === $index && !loading()">
+                  {{ digit }}
+                </div>
+              }
+            </div>
+            <input
+              #totpInput
+              type="text"
+              inputmode="numeric"
+              pattern="[0-9]*"
+              [(ngModel)]="totp"
+              (ngModelChange)="onTotpInput()"
+              (keyup.enter)="onTotpLogin()"
+              maxlength="6"
+              autocomplete="one-time-code"
+              class="totp-real-input"
+              [disabled]="loading()"
+            />
+          </div>
+          <p class="field-hint">Refreshes every 30s in your app — auto-submits once all 6 digits are entered.</p>
+        </div>
+
+        @if (error()) {
+          <div class="error-msg">{{ error() }}</div>
+        }
+
+        <button class="btn-primary" (click)="onTotpLogin()" [disabled]="loading() || totp.length < 6">
+          @if (loading()) {
+            <span class="spinner"></span> Authenticating...
+          } @else {
+            Login to SmartAPI
+          }
+        </button>
+      </div>
+    }
+
+    <div class="login-footer">
+      <span>Session data never leaves your machine</span>
+    </div>
+
+  </div>
+</div>

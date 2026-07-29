@@ -1,0 +1,154 @@
+<div class="breakout-page">
+  <header class="page-header">
+    <a routerLink="/strategies" class="back-link">&larr; Strategies</a>
+    <h1>NIFTY CE/PE 200-OTM Breakout</h1>
+    <a routerLink="/strategies/breakout/history" class="history-link">History</a>
+  </header>
+
+  @if (!state().active || showConfigForm()) {
+    <div class="config-card">
+      <h2>Configure &amp; start</h2>
+      <p class="hint">Entry window 9:25–9:45 IST. Strike is selected at 9:22 from live NIFTY spot. Paper mode simulates fills against live SmartAPI ticks — no real orders.</p>
+
+      @if (presets().length > 0) {
+        <div class="form-row">
+          <label for="preset">Saved presets</label>
+          <div class="preset-row">
+            <select id="preset" class="select-input" (change)="applyPreset($any($event.target).value)">
+              <option value="">Custom...</option>
+              @for (p of presets(); track p.id) {
+                <option [value]="p.id">{{ p.name }} ({{ p.quantity }} lot, {{ p.mode }})</option>
+              }
+            </select>
+          </div>
+        </div>
+      }
+
+      <div class="form-row">
+        <label for="qty">Quantity (lots)</label>
+        <select id="qty" [(ngModel)]="quantity" class="select-input">
+          @for (q of quantityOptions; track q) {
+            <option [value]="q">{{ q }}</option>
+          }
+        </select>
+      </div>
+
+      <div class="form-row">
+        <label>Mode</label>
+        <div class="mode-toggle">
+          <button [class.active]="mode === 'PAPER'" (click)="mode = 'PAPER'">Paper</button>
+          <button [class.active]="mode === 'LIVE'" (click)="mode = 'LIVE'">Live</button>
+        </div>
+      </div>
+
+      <div class="form-row preset-save-row">
+        <input type="text" [(ngModel)]="newPresetName" placeholder="Preset name (optional)" class="select-input" />
+        <button class="btn-secondary" (click)="saveCurrentAsPreset()" [disabled]="!newPresetName.trim()">Save preset</button>
+      </div>
+
+      @if (mode === 'LIVE') {
+        <div class="live-warning">Live mode is not wired to real order placement yet — starting in Live will behave the same as Paper for now.</div>
+      }
+
+      <div class="form-row">
+        <button class="btn-secondary" (click)="previewStrikes()" [disabled]="previewing()">
+          @if (previewing()) { Checking... } @else { Check current CE/PE premium (~200) }
+        </button>
+      </div>
+
+      @if (previewResult(); as preview) {
+        <div class="preview-box">
+          @if (!preview.status) {
+            <div class="error-msg">{{ preview.message }}</div>
+          } @else {
+            <div class="preview-row"><span>Spot</span><strong>{{ fmt(preview.spot) }}</strong></div>
+            <div class="preview-row"><span>CE</span><strong>{{ preview.ceSymbol }} — strike {{ preview.ceStrike }}, premium {{ fmt(preview.cePremium) }}</strong></div>
+            <div class="preview-row"><span>PE</span><strong>{{ preview.peSymbol }} — strike {{ preview.peStrike }}, premium {{ fmt(preview.pePremium) }}</strong></div>
+          }
+        </div>
+      }
+
+      @if (errorMsg()) {
+        <div class="error-msg">{{ errorMsg() }}</div>
+      }
+
+      <button class="btn-primary" (click)="start()" [disabled]="starting()">
+        @if (starting()) { Starting... } @else { Arm strategy }
+      </button>
+    </div>
+  } @else {
+    <div class="watch-layout">
+
+      <div class="status-bar">
+        <span class="status-pill" [attr.data-status]="state().status">{{ statusLabel(state().status) }}</span>
+        <span class="mode-pill">{{ state().mode }}</span>
+        @if (isFinished()) {
+          <button class="btn-primary btn-inline" (click)="startNewRun()">Start new run</button>
+        } @else {
+          <button class="btn-stop" (click)="stop()" [disabled]="stopping()">Stop</button>
+        }
+      </div>
+
+      <div class="summary-row">
+        <div class="summary-item">
+          <span class="label">Spot at selection</span>
+          <span class="value">{{ fmt(state().spotAtSelection) }}</span>
+        </div>
+        <div class="summary-item">
+          <span class="label">Cumulative loss</span>
+          <span class="value">{{ fmt(state().cumulativeLossPoints) }} pts</span>
+        </div>
+        <div class="summary-item">
+          <span class="label">Realized P&amp;L</span>
+          <span class="value" [class.up]="(state().realizedPnlPoints || 0) >= 0" [class.down]="(state().realizedPnlPoints || 0) < 0">
+            {{ (state().realizedPnlPoints || 0) >= 0 ? '+' : '' }}{{ fmt(state().realizedPnlPoints) }} pts
+          </span>
+        </div>
+      </div>
+
+      <div class="side-cards">
+        <div class="side-card" [class.active]="state().activeSide === 'CE'">
+          <div class="side-title">CE &mdash; {{ state().ceSymbol || '—' }}</div>
+          <div class="side-row"><span>Strike</span><strong>{{ state().ceStrike || '—' }}</strong></div>
+          <div class="side-row"><span>Premium @ selection</span><strong>{{ fmt(state().cePremiumAtSelection) }}</strong></div>
+          <div class="side-row"><span>9:20–9:25 High</span><strong>{{ fmt(state().ceCandleHigh) }}</strong></div>
+          <div class="side-row"><span>9:20–9:25 Low</span><strong>{{ fmt(state().ceCandleLow) }}</strong></div>
+          <div class="side-row live"><span>Live LTP</span><strong [class.breakout]="brokeOut(state().ceLtp, state().ceCandleHigh)">{{ fmt(state().ceLtp) }}</strong></div>
+        </div>
+        <div class="side-card" [class.active]="state().activeSide === 'PE'">
+          <div class="side-title">PE &mdash; {{ state().peSymbol || '—' }}</div>
+          <div class="side-row"><span>Strike</span><strong>{{ state().peStrike || '—' }}</strong></div>
+          <div class="side-row"><span>Premium @ selection</span><strong>{{ fmt(state().pePremiumAtSelection) }}</strong></div>
+          <div class="side-row"><span>9:20–9:25 High</span><strong>{{ fmt(state().peCandleHigh) }}</strong></div>
+          <div class="side-row"><span>9:20–9:25 Low</span><strong>{{ fmt(state().peCandleLow) }}</strong></div>
+          <div class="side-row live"><span>Live LTP</span><strong [class.breakout]="brokeOut(state().peLtp, state().peCandleHigh)">{{ fmt(state().peLtp) }}</strong></div>
+        </div>
+      </div>
+
+      @if (state().activeSide) {
+        <div class="position-card">
+          <div class="side-title">Open position — {{ state().activeSide }}</div>
+          <div class="position-grid">
+            <div><span>Entry</span><strong>{{ fmt(state().entryPrice) }}</strong></div>
+            <div><span>Target</span><strong>{{ fmt(state().targetPrice) }}</strong></div>
+            <div><span>Stop loss</span><strong>{{ fmt(state().stopLossPrice) }}</strong></div>
+          </div>
+        </div>
+      }
+
+      <div class="timeline-card">
+        <div class="side-title">Timeline</div>
+        <div class="timeline">
+          @for (e of (state().events || []).slice().reverse(); track e.time + e.type) {
+            <div class="timeline-row">
+              <span class="timeline-time">{{ e.time.slice(11, 19) }}</span>
+              <span class="timeline-type">{{ e.type }}</span>
+              <span class="timeline-msg">{{ e.message }}</span>
+            </div>
+          }
+        </div>
+      </div>
+
+    </div>
+  }
+</div>
