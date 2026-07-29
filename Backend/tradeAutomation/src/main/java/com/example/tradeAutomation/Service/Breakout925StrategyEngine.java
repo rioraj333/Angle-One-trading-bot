@@ -24,13 +24,22 @@ import com.example.tradeAutomation.repository.Breakout925TradeRepository;
 /**
  * Server-side state machine for the 9:25 Breakout Strategy - moved here from the
  * Angular frontend so monitoring survives the browser tab closing. Entry is a MARKET
- * order; 60 seconds after the fill is confirmed, a resting Target LIMIT and Stop-Loss
- * STOPLOSS_LIMIT order are placed (one-cancels-other once either fills). PAPER mode
- * simulates the same timing/levels via tick comparison instead of real orders.
+ * order; 60 seconds after the fill is confirmed, only a Stop-Loss STOPLOSS_LIMIT order
+ * is placed as a real resting broker order. Target is NOT a resting order - it is
+ * watched via live ticks and exited with a MARKET SELL when hit. PAPER mode simulates
+ * both levels via tick comparison instead of real orders.
+ *
+ * Why only one resting order: Angel One's margin engine only treats a single resting
+ * SELL order against an existing long as a margin-free square-off. Placing both a
+ * Target LIMIT and a SL STOPLOSS_LIMIT simultaneously makes the broker treat the second
+ * one as a fresh naked short requiring full margin, which gets rejected for
+ * insufficient funds - confirmed via a real LIVE rejection. Keeping only the SL as a
+ * real order guarantees it can never be margin-rejected.
  *
  * Lean first pass: no crash-recovery, no WS-reconnect watchdog, no REST-poll fallback
- * for open legs, no market-close force square-off, no order-retry/backoff. See the
- * approved plan for what's deferred.
+ * for open legs, no market-close force square-off, no order-retry/backoff beyond the
+ * natural retry-on-next-tick for the target exit. See the approved plan for what's
+ * deferred.
  */
 @Service
 public class Breakout925StrategyEngine {
@@ -187,26 +196,7 @@ public class Breakout925StrategyEngine {
         String token = "CE".equals(side) ? run.getCeToken() : run.getPeToken();
 
         if ("LIVE".equals(run.getMode())) {
-            if (newTarget != null) {
-                String targetOrderId = "CE".equals(side) ? run.getCeTargetOrderId() : run.getPeTargetOrderId();
-                if (targetOrderId != null) {
-                    Map<String, Object> order = new HashMap<>();
-                    order.put("variety", "NORMAL");
-                    order.put("orderid", targetOrderId);
-                    order.put("tradingsymbol", symbol);
-                    order.put("symboltoken", token);
-                    order.put("exchange", run.getExchSeg());
-                    order.put("ordertype", "LIMIT");
-                    order.put("producttype", "INTRADAY");
-                    order.put("duration", "DAY");
-                    order.put("price", String.valueOf(newTarget));
-                    order.put("quantity", String.valueOf(totalQty(run)));
-                    Map<String, Object> resp = orderService.modifyOrder(order);
-                    if (resp == null || !Boolean.TRUE.equals(resp.get("status"))) {
-                        throw new IllegalStateException("Broker rejected target modify: " + (resp != null ? resp.get("message") : "no response"));
-                    }
-                }
-            }
+            // Target has no resting broker order (it's tick-watched) - nothing to modify there.
             if (newStopLoss != null) {
                 String slOrderId = "CE".equals(side) ? run.getCeStopLossOrderId() : run.getPeStopLossOrderId();
                 if (slOrderId != null) {
@@ -350,20 +340,10 @@ public class Breakout925StrategyEngine {
         double stopLoss = candleLow;
 
         if ("LIVE".equals(run.getMode())) {
-            Map<String, Object> targetOrder = new HashMap<>();
-            targetOrder.put("variety", "NORMAL");
-            targetOrder.put("tradingsymbol", symbol);
-            targetOrder.put("symboltoken", token);
-            targetOrder.put("transactiontype", "SELL");
-            targetOrder.put("exchange", run.getExchSeg());
-            targetOrder.put("ordertype", "LIMIT");
-            targetOrder.put("producttype", "INTRADAY");
-            targetOrder.put("duration", "DAY");
-            targetOrder.put("price", String.valueOf(target));
-            targetOrder.put("quantity", String.valueOf(totalQty(run)));
-            String targetOrderId = extractOrderId(orderService.placeOrder(targetOrder));
-            if (targetOrderId == null) log(run, "ORDER_FAILED", side + " target LIMIT order failed to place.");
-
+            // Only the stop-loss is a real resting order. Angel One only treats ONE resting
+            // SELL against a long as margin-free square-off; a second one (the old target
+            // LIMIT) gets margin-blocked as a fresh naked short and can be rejected for
+            // insufficient funds. Target is exited via tick-watch + market SELL instead.
             Map<String, Object> slOrder = new HashMap<>();
             slOrder.put("variety", "STOPLOSS");
             slOrder.put("tradingsymbol", symbol);
@@ -381,18 +361,16 @@ public class Breakout925StrategyEngine {
 
             if ("CE".equals(side)) {
                 run.setCeTarget(target);
-                run.setCeTargetOrderId(targetOrderId);
                 run.setCeStopLoss(stopLoss);
                 run.setCeStopLossOrderId(slOrderId);
                 run.setCeLegStatus("BRACKET_PLACED");
             } else {
                 run.setPeTarget(target);
-                run.setPeTargetOrderId(targetOrderId);
                 run.setPeStopLoss(stopLoss);
                 run.setPeStopLossOrderId(slOrderId);
                 run.setPeLegStatus("BRACKET_PLACED");
             }
-            log(run, "BRACKET_PLACED", side + " target=" + target + " (order " + targetOrderId + "), SL=" + stopLoss + " (order " + slOrderId + ")");
+            log(run, "BRACKET_PLACED", side + " target=" + target + " (watched live, market exit on hit), SL=" + stopLoss + " (order " + slOrderId + ")");
         } else {
             if ("CE".equals(side)) {
                 run.setCeTarget(target);
@@ -426,7 +404,7 @@ public class Breakout925StrategyEngine {
         }
     }
 
-    // ─── LIVE order-book polling (entry fill confirmation + bracket fill/OCO) ──
+    // ─── LIVE order-book polling (entry fill confirmation + SL fill detection) ──
 
     private void pollOrderStatuses(Breakout925Run run) {
         pollEntryFill(run, "CE");
@@ -483,35 +461,13 @@ public class Breakout925StrategyEngine {
     private void pollBracketFill(Breakout925Run run, String side) {
         String legStatus = "CE".equals(side) ? run.getCeLegStatus() : run.getPeLegStatus();
         if (!"BRACKET_PLACED".equals(legStatus)) return;
-        String targetOrderId = "CE".equals(side) ? run.getCeTargetOrderId() : run.getPeTargetOrderId();
         String slOrderId = "CE".equals(side) ? run.getCeStopLossOrderId() : run.getPeStopLossOrderId();
-        Double target = "CE".equals(side) ? run.getCeTarget() : run.getPeTarget();
         Double stopLoss = "CE".equals(side) ? run.getCeStopLoss() : run.getPeStopLoss();
+        if (slOrderId == null) return;
 
-        if (targetOrderId != null) {
-            Map<String, Object> info = findOrder(targetOrderId);
-            if (info != null && String.valueOf(info.getOrDefault("status", "")).toLowerCase().contains("complete")) {
-                if (slOrderId != null) {
-                    Map<String, Object> resp = orderService.cancelOrder("STOPLOSS", slOrderId);
-                    if (resp == null || !Boolean.TRUE.equals(resp.get("status"))) {
-                        log(run, "CANCEL_FAILED", side + " stop-loss order " + slOrderId + " cancel failed after target fill - manual broker attention needed.");
-                    }
-                }
-                handleExit(run, side, "Target hit", target != null ? target : 0.0);
-                return;
-            }
-        }
-        if (slOrderId != null) {
-            Map<String, Object> info = findOrder(slOrderId);
-            if (info != null && String.valueOf(info.getOrDefault("status", "")).toLowerCase().contains("complete")) {
-                if (targetOrderId != null) {
-                    Map<String, Object> resp = orderService.cancelOrder("NORMAL", targetOrderId);
-                    if (resp == null || !Boolean.TRUE.equals(resp.get("status"))) {
-                        log(run, "CANCEL_FAILED", side + " target order " + targetOrderId + " cancel failed after stop-loss fill - manual broker attention needed.");
-                    }
-                }
-                handleExit(run, side, "Stop loss hit", stopLoss != null ? stopLoss : 0.0);
-            }
+        Map<String, Object> info = findOrder(slOrderId);
+        if (info != null && String.valueOf(info.getOrDefault("status", "")).toLowerCase().contains("complete")) {
+            handleExit(run, side, "Stop loss hit", stopLoss != null ? stopLoss : 0.0);
         }
     }
 
@@ -566,15 +522,46 @@ public class Breakout925StrategyEngine {
             updateMaxima(side, pnl);
         }
 
-        if ("BRACKET_PLACED".equals(legStatus) && "PAPER".equals(run.getMode())) {
+        if ("BRACKET_PLACED".equals(legStatus)) {
             Double target = "CE".equals(side) ? run.getCeTarget() : run.getPeTarget();
             Double stopLoss = "CE".equals(side) ? run.getCeStopLoss() : run.getPeStopLoss();
             if (target != null && ltp >= target) {
-                handleExit(run, side, "Target hit", ltp);
-            } else if (stopLoss != null && ltp <= stopLoss) {
+                if ("LIVE".equals(run.getMode())) {
+                    exitLiveOnTargetTick(run, side);
+                } else {
+                    handleExit(run, side, "Target hit", ltp);
+                }
+            } else if ("PAPER".equals(run.getMode()) && stopLoss != null && ltp <= stopLoss) {
                 handleExit(run, side, "Stop loss hit", ltp);
             }
         }
+    }
+
+    /**
+     * LIVE-mode target exit: there is no resting target order (see class-level note), so a
+     * tick crossing the target fires an immediate MARKET SELL. The resting SL is cancelled
+     * only after that sell succeeds - if the market order fails, the SL stays in place as
+     * protection and the next tick above target will retry.
+     */
+    private void exitLiveOnTargetTick(Breakout925Run run, String side) {
+        String symbol = "CE".equals(side) ? run.getCeSymbol() : run.getPeSymbol();
+        String token = "CE".equals(side) ? run.getCeToken() : run.getPeToken();
+        String slOrderId = "CE".equals(side) ? run.getCeStopLossOrderId() : run.getPeStopLossOrderId();
+        Double target = "CE".equals(side) ? run.getCeTarget() : run.getPeTarget();
+
+        String exitOrderId = placeLiveOrder(run, "SELL", symbol, token, "Target exit (" + side + ")");
+        if (exitOrderId == null) {
+            log(run, "ORDER_FAILED", side + " target-tick market exit failed - stop-loss order remains active as protection, will retry on next tick.");
+            return;
+        }
+
+        if (slOrderId != null) {
+            Map<String, Object> resp = orderService.cancelOrder("STOPLOSS", slOrderId);
+            if (resp == null || !Boolean.TRUE.equals(resp.get("status"))) {
+                log(run, "CANCEL_FAILED", side + " stop-loss order " + slOrderId + " cancel failed after target exit - manual broker attention needed.");
+            }
+        }
+        handleExit(run, side, "Target hit", target != null ? target : liveLtp.getOrDefault(token, 0.0));
     }
 
     private void updateMaxima(String side, double pnl) {
