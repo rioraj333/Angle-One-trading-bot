@@ -14,7 +14,7 @@ public class WebConfig {
             @Override
             public void addCorsMappings(CorsRegistry registry) {
                 registry.addMapping("/**") // Allows all endpoints in the app
-                        .allowedOrigins("http://localhost:4200") // Allows your Angular frontend
+                        .allowedOrigins("http://localhost:4200", "http://139.59.80.108") // Local dev + production server
                         .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS") // Allows preflight checks
                         .allowedHeaders("*") // Allows all header metrics
                         .allowCredentials(true);
