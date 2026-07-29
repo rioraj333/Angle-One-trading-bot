@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -51,6 +52,29 @@ public class Breakout925PresetController {
 
     @PostMapping
     public Breakout925Preset save(@RequestBody PresetRequest request) {
+        validate(request);
+
+        Breakout925Preset preset = new Breakout925Preset();
+        applyFields(preset, request);
+        preset.setCreatedAt(LocalDateTime.now());
+        return presetRepository.save(preset);
+    }
+
+    @PutMapping("/{id}")
+    public Breakout925Preset update(@PathVariable Long id, @RequestBody PresetRequest request) {
+        validate(request);
+
+        Breakout925Preset preset = presetRepository.findById(id).orElseThrow();
+        applyFields(preset, request);
+        return presetRepository.save(preset);
+    }
+
+    @DeleteMapping("/{id}")
+    public void delete(@PathVariable Long id) {
+        presetRepository.deleteById(id);
+    }
+
+    private void validate(PresetRequest request) {
         if (!"PAPER".equals(request.mode()) && !"LIVE".equals(request.mode())) {
             throw new IllegalArgumentException("mode must be PAPER or LIVE.");
         }
@@ -63,8 +87,9 @@ public class Breakout925PresetController {
         if (request.premiumFrom() == null || request.premiumTo() == null || request.premiumFrom() > request.premiumTo()) {
             throw new IllegalArgumentException("premiumFrom/premiumTo must both be set with premiumFrom <= premiumTo.");
         }
+    }
 
-        Breakout925Preset preset = new Breakout925Preset();
+    private void applyFields(Breakout925Preset preset, PresetRequest request) {
         preset.setName(request.name());
         preset.setSelectionMode(request.selectionMode());
         preset.setIndexName(request.indexName());
@@ -75,13 +100,6 @@ public class Breakout925PresetController {
         preset.setQuantity(request.quantity());
         preset.setTargetPoints(request.targetPoints());
         preset.setMode(request.mode());
-        preset.setCreatedAt(LocalDateTime.now());
-        return presetRepository.save(preset);
-    }
-
-    @DeleteMapping("/{id}")
-    public void delete(@PathVariable Long id) {
-        presetRepository.deleteById(id);
     }
 
     @PostMapping("/{id}/deploy")

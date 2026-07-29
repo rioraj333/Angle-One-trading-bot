@@ -13,7 +13,9 @@ import org.springframework.stereotype.Service;
 import com.example.tradeAutomation.Service.Breakout925StrategyEngine.Breakout925StartRequest;
 import com.example.tradeAutomation.Service.Breakout925StrategyEngine.LegPick;
 import com.example.tradeAutomation.model.Breakout925Preset;
+import com.example.tradeAutomation.model.Breakout925RunEvent;
 import com.example.tradeAutomation.repository.Breakout925PresetRepository;
+import com.example.tradeAutomation.repository.Breakout925RunEventRepository;
 
 /**
  * Defers an AUTO preset's strike selection to (candleFromTime + 2 minutes) instead of
@@ -32,15 +34,20 @@ public class Breakout925DeployScheduler {
     private final Breakout925PresetRepository presetRepository;
     private final PremiumSearchService premiumSearchService;
     private final Breakout925StrategyEngine engine;
+    private final Breakout925RunEventRepository eventRepository;
 
     private volatile PendingDeploy state;
 
     public Breakout925DeployScheduler(Breakout925PresetRepository presetRepository,
-            PremiumSearchService premiumSearchService, Breakout925StrategyEngine engine) {
+            PremiumSearchService premiumSearchService, Breakout925StrategyEngine engine,
+            Breakout925RunEventRepository eventRepository) {
         this.presetRepository = presetRepository;
         this.premiumSearchService = premiumSearchService;
         this.engine = engine;
+        this.eventRepository = eventRepository;
     }
+
+    private record PickResult(LegPick pick, double premium) {}
 
     private record PendingDeploy(
             Long presetId, String presetName, LocalDateTime triggerAt,
@@ -138,8 +145,8 @@ public class Breakout925DeployScheduler {
             return result;
         }
 
-        LegPick ce = highestPremiumPick(search, "ce");
-        LegPick pe = highestPremiumPick(search, "pe");
+        PickResult ce = highestPremiumPick(search, "ce");
+        PickResult pe = highestPremiumPick(search, "pe");
         if (ce == null && pe == null) {
             Map<String, Object> result = new HashMap<>();
             result.put("selectionMode", "AUTO");
@@ -148,13 +155,24 @@ public class Breakout925DeployScheduler {
             return result;
         }
 
+        StringBuilder pickMsg = new StringBuilder("Premium search complete - picked ");
+        if (ce != null) pickMsg.append("CE ").append(ce.pick().strike()).append(" (₹").append(ce.premium()).append(")");
+        if (ce != null && pe != null) pickMsg.append(" and ");
+        if (pe != null) pickMsg.append("PE ").append(pe.pick().strike()).append(" (₹").append(pe.premium()).append(")");
+        pickMsg.append(" - highest premium in range ").append(preset.getPremiumFrom()).append("-").append(preset.getPremiumTo()).append(".");
+
         Breakout925StartRequest startRequest = new Breakout925StartRequest(
                 preset.getIndexName(), String.valueOf(search.get("exchSeg")),
                 preset.getCandleFromTime(), preset.getCandleToTime(),
-                preset.getQuantity(), preset.getTargetPoints(), preset.getMode(), ce, pe, preset.getId());
+                preset.getQuantity(), preset.getTargetPoints(), preset.getMode(),
+                ce != null ? ce.pick() : null, pe != null ? pe.pick() : null, preset.getId());
         try {
             Map<String, Object> result = engine.start(startRequest);
             result.put("selectionMode", "AUTO");
+            Object runId = result.get("id");
+            if (runId instanceof Long id) {
+                eventRepository.save(new Breakout925RunEvent(id, "STRIKE_PICKED", pickMsg.toString()));
+            }
             return result;
         } catch (IllegalStateException e) {
             Map<String, Object> result = new HashMap<>();
@@ -164,23 +182,21 @@ public class Breakout925DeployScheduler {
         }
     }
 
-    private LegPick highestPremiumPick(Map<String, Object> search, String side) {
+    private PickResult highestPremiumPick(Map<String, Object> search, String side) {
         Object listObj = search.get(side);
         if (!(listObj instanceof List<?> list)) return null;
 
-        LegPick best = null;
-        double bestPremium = Double.NEGATIVE_INFINITY;
+        PickResult best = null;
         for (Object entryObj : list) {
             if (!(entryObj instanceof Map<?, ?> entry)) continue;
             Object premiumObj = entry.get("premium");
             if (premiumObj == null) continue;
             double premium = Double.parseDouble(String.valueOf(premiumObj));
-            if (premium > bestPremium) {
-                bestPremium = premium;
+            if (best == null || premium > best.premium()) {
                 Integer strike = (Integer) entry.get("strike");
                 String symbol = String.valueOf(entry.get("symbol"));
                 String token = String.valueOf(entry.get("token"));
-                best = new LegPick(strike, symbol, token);
+                best = new PickResult(new LegPick(strike, symbol, token), premium);
             }
         }
         return best;

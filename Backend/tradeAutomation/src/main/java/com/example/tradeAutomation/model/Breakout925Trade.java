@@ -17,6 +17,8 @@ public class Breakout925Trade {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    private Long runId; // the Breakout925Run this leg belongs to, for looking up its event log
+
     @Column(nullable = false)
     private String mode; // PAPER or LIVE
 
@@ -62,6 +64,8 @@ public class Breakout925Trade {
     private LocalDateTime exitTime;
 
     public Long getId() { return id; }
+    public Long getRunId() { return runId; }
+    public void setRunId(Long runId) { this.runId = runId; }
     public String getMode() { return mode; }
     public void setMode(String mode) { this.mode = mode; }
     public String getIndexName() { return indexName; }

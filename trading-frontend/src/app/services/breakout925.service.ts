@@ -82,4 +82,8 @@ export class Breakout925Service {
   modify(side: 'CE' | 'PE', newTarget?: number, newStopLoss?: number): Observable<Breakout925State> {
     return this.http.post<Breakout925State>(`${this.apiUrl}/modify`, { side, newTarget, newStopLoss });
   }
+
+  getRunEvents(runId: number): Observable<{ time: string; type: string; message: string }[]> {
+    return this.http.get<{ time: string; type: string; message: string }[]>(`${this.apiUrl}/runs/${runId}/events`);
+  }
 }

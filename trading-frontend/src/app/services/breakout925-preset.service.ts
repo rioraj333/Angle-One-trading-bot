@@ -63,6 +63,10 @@ export class Breakout925PresetService {
     return this.http.post<Breakout925Preset>(this.apiUrl, request);
   }
 
+  update(id: number, request: SaveBreakout925PresetRequest): Observable<Breakout925Preset> {
+    return this.http.put<Breakout925Preset>(`${this.apiUrl}/${id}`, request);
+  }
+
   delete(id: number): Observable<void> {
     return this.http.delete<void>(`${this.apiUrl}/${id}`);
   }

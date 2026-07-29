@@ -592,6 +592,7 @@ public class Breakout925StrategyEngine {
         Double candleLow = "CE".equals(side) ? run.getCeCandleLow() : run.getPeCandleLow();
 
         Breakout925Trade trade = new Breakout925Trade();
+        trade.setRunId(run.getId());
         trade.setMode(run.getMode());
         trade.setIndexName(run.getIndexName());
         trade.setSide(side);

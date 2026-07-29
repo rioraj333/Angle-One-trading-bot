@@ -8,7 +8,21 @@ import { startWith } from 'rxjs/operators';
 import { AuthService } from '../services/auth.service';
 import { TradingService } from '../services/trading.service';
 import { getMarketStatus, MarketStatus } from '../utils/market-hours';
-import { Breakout925DeployStatus, Breakout925Preset, Breakout925PresetService } from '../services/breakout925-preset.service';
+import { Breakout925DeployStatus, Breakout925Preset, Breakout925PresetService, SaveBreakout925PresetRequest } from '../services/breakout925-preset.service';
+import { Breakout925Service } from '../services/breakout925.service';
+
+interface PresetEditForm {
+  name: string;
+  selectionMode: 'MANUAL' | 'AUTO';
+  indexName: string;
+  premiumFrom: number;
+  premiumTo: number;
+  candleFromTime: string;
+  candleToTime: string;
+  quantity: number;
+  targetPoints: number;
+  mode: 'PAPER' | 'LIVE';
+}
 
 export interface Position {
   tradingsymbol: string;
@@ -111,6 +125,13 @@ export class DashboardComponent implements OnInit, OnDestroy {
   pendingDeploy = signal<Breakout925DeployStatus | null>(null);
   cancelError = signal('');
 
+  editingPresetId = signal<number | null>(null);
+  editForm: PresetEditForm = this.blankEditForm();
+  editError = signal('');
+  editSaving = signal(false);
+
+  activeRun = signal<{ presetId: number | null; status: string } | null>(null);
+
   private clockSub?: Subscription;
   private refreshSub?: Subscription;
   private deployStatusSub?: Subscription;
@@ -119,7 +140,8 @@ export class DashboardComponent implements OnInit, OnDestroy {
     private router: Router,
     private authService: AuthService,
     private tradingService: TradingService,
-    private breakout925PresetService: Breakout925PresetService
+    private breakout925PresetService: Breakout925PresetService,
+    private breakout925Service: Breakout925Service
   ) {}
 
   ngOnInit(): void {
@@ -241,7 +263,22 @@ export class DashboardComponent implements OnInit, OnDestroy {
 
   setSection(section: 'home' | 'positions' | 'orders' | 'holdings' | 'funds' | 'strategies'): void {
     this.activeSection.set(section);
-    if (section === 'strategies' && this.strategyPresets().length === 0) this.loadPresets();
+    if (section === 'strategies') {
+      if (this.strategyPresets().length === 0) this.loadPresets();
+      this.checkActiveRun();
+    }
+    this.sidebarOpen.set(false);
+  }
+
+  /** Checks the real server state - separate from loadPresets() so it re-checks every time
+   *  you open this section, not just once, so status is accurate even after you've been away. */
+  private checkActiveRun(): void {
+    this.breakout925Service.getState().subscribe({
+      next: (state) => {
+        this.activeRun.set(state?.active ? { presetId: state.presetId ?? null, status: state.status ?? '' } : null);
+      },
+      error: () => {},
+    });
   }
 
   toggleSidebar(): void {
@@ -350,6 +387,67 @@ export class DashboardComponent implements OnInit, OnDestroy {
       next: () => this.strategyPresets.set(this.strategyPresets().filter((p) => p.id !== id)),
       error: () => {},
     });
+  }
+
+  startEditPreset(preset: Breakout925Preset): void {
+    this.editingPresetId.set(preset.id);
+    this.editError.set('');
+    this.editForm = {
+      name: preset.name,
+      selectionMode: preset.selectionMode,
+      indexName: preset.indexName,
+      premiumFrom: preset.premiumFrom,
+      premiumTo: preset.premiumTo,
+      candleFromTime: preset.candleFromTime,
+      candleToTime: preset.candleToTime,
+      quantity: preset.quantity,
+      targetPoints: preset.targetPoints,
+      mode: preset.mode,
+    };
+  }
+
+  cancelEditPreset(): void {
+    this.editingPresetId.set(null);
+  }
+
+  saveEditPreset(): void {
+    const id = this.editingPresetId();
+    if (id == null) return;
+    this.editError.set('');
+
+    if (!this.editForm.name.trim()) {
+      this.editError.set('Name is required.');
+      return;
+    }
+    if (this.editForm.premiumFrom > this.editForm.premiumTo) {
+      this.editError.set('Premium "from" must be less than or equal to "to".');
+      return;
+    }
+    if (this.editForm.targetPoints <= 0) {
+      this.editError.set('Target points must be greater than 0.');
+      return;
+    }
+
+    this.editSaving.set(true);
+    const request: SaveBreakout925PresetRequest = { ...this.editForm };
+    this.breakout925PresetService.update(id, request).subscribe({
+      next: (updated) => {
+        this.editSaving.set(false);
+        this.strategyPresets.set(this.strategyPresets().map((p) => (p.id === id ? updated : p)));
+        this.editingPresetId.set(null);
+      },
+      error: (err) => {
+        this.editSaving.set(false);
+        this.editError.set(err.error?.message || 'Failed to save changes.');
+      },
+    });
+  }
+
+  private blankEditForm(): PresetEditForm {
+    return {
+      name: '', selectionMode: 'MANUAL', indexName: 'NIFTY', premiumFrom: 100, premiumTo: 200,
+      candleFromTime: '09:20', candleToTime: '09:25', quantity: 1, targetPoints: 15, mode: 'PAPER',
+    };
   }
 
   formatCurrency(val: number | string): string {
