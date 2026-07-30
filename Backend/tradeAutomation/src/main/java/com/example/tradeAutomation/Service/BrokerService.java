@@ -37,12 +37,14 @@ public class BrokerService {
     private final SmartApiClient smartApiClient;
     private final BrokerSessionRepository sessionRepository;
     private final SessionStore sessionStore;
+    private final Breakout925StrategyEngine breakout925StrategyEngine;
 
     public BrokerService(SmartApiClient smartApiClient, BrokerSessionRepository sessionRepository,
-                          SessionStore sessionStore) {
+                          SessionStore sessionStore, Breakout925StrategyEngine breakout925StrategyEngine) {
         this.smartApiClient = smartApiClient;
         this.sessionRepository = sessionRepository;
         this.sessionStore = sessionStore;
+        this.breakout925StrategyEngine = breakout925StrategyEngine;
     }
 
     /**
@@ -104,6 +106,7 @@ public class BrokerService {
         session.setLoginTime(LocalDateTime.now());
         sessionRepository.save(session);
         sessionStore.setCurrentSession(session);
+        breakout925StrategyEngine.onFreshLogin();
 
         Map<String, Object> data = new HashMap<>();
         data.put("clientId", clientId);

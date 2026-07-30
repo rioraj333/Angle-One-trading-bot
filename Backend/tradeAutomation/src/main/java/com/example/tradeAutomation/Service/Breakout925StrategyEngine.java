@@ -36,10 +36,12 @@ import com.example.tradeAutomation.repository.Breakout925TradeRepository;
  * insufficient funds - confirmed via a real LIVE rejection. Keeping only the SL as a
  * real order guarantees it can never be margin-rejected.
  *
- * Lean first pass: no crash-recovery, no WS-reconnect watchdog, no REST-poll fallback
- * for open legs, no market-close force square-off, no order-retry/backoff beyond the
- * natural retry-on-next-tick for the target exit. See the approved plan for what's
- * deferred.
+ * Lean first pass: no crash-recovery, no REST-poll fallback for open legs, no
+ * market-close force square-off, no order-retry/backoff beyond the natural
+ * retry-on-next-tick for the target exit. The WebSocket feed is only reconnected
+ * explicitly on a fresh login (see onFreshLogin()) - there is still no watchdog for a
+ * feed that drops for some other reason (network blip, etc). See the approved plan for
+ * what's deferred.
  */
 @Service
 public class Breakout925StrategyEngine {
@@ -230,6 +232,39 @@ public class Breakout925StrategyEngine {
         runRepository.save(run);
         log(run, "MODIFIED", side + " modified - target=" + newTarget + " stopLoss=" + newStopLoss);
         return getState();
+    }
+
+    /**
+     * Called after a fresh broker login. Angel One only allows one active session per
+     * account, so logging in again (e.g. re-authenticating after a token expired) can
+     * silently invalidate the feed token an already-open WebSocket connection was using -
+     * there is no reconnect watchdog otherwise, so a running strategy's tick feed could
+     * go dark with no visible error. If a run is active, force the feed to reconnect with
+     * the new tokens and re-subscribe its watched legs.
+     */
+    public synchronized void onFreshLogin() {
+        Breakout925Run run = currentRun;
+        if (run == null || "DONE".equals(run.getStatus())) return;
+
+        var sessionOpt = sessionStore.getCurrentSession();
+        if (sessionOpt.isEmpty()) return;
+        var session = sessionOpt.get();
+
+        log(run, "FEED_RECONNECT", "Re-authenticated - re-establishing live price feed for the active run.");
+        wsClient.disconnect();
+        try {
+            wsClient.connect(session.getAccessToken(), apiKey, session.getClientId(), session.getFeedToken());
+        } catch (Exception e) {
+            log(run, "ERROR", "WebSocket reconnect after login failed: " + e.getMessage());
+            return;
+        }
+
+        List<String> tokens = new ArrayList<>();
+        if (run.getCeToken() != null) tokens.add(run.getCeToken());
+        if (run.getPeToken() != null) tokens.add(run.getPeToken());
+        if (tokens.isEmpty()) return;
+        int wsExchType = "BFO".equals(run.getExchSeg()) ? SmartApiWebSocketClient.EXCHANGE_BSE_FO : SmartApiWebSocketClient.EXCHANGE_NSE_FO;
+        wsClient.subscribe("breakout925", SmartApiWebSocketClient.MODE_LTP, wsExchType, tokens);
     }
 
     private boolean isLegPositionOpen(String legStatus) {
