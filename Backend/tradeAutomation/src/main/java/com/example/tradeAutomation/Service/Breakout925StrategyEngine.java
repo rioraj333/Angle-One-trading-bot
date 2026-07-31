@@ -29,6 +29,12 @@ import com.example.tradeAutomation.repository.Breakout925TradeRepository;
  * watched via live ticks and exited with a MARKET SELL when hit. PAPER mode simulates
  * both levels via tick comparison instead of real orders.
  *
+ * Entries are sequential, not simultaneous (see canEnter()): only one of CE/PE is ever
+ * open at a time. Whichever leg breaks out first takes the entry. If it hits target,
+ * the run is done - the other leg is never taken (marked SKIPPED) even if it breaks out
+ * later. Only a stop-loss on the first leg allows the second leg its own entry attempt.
+ *
+
  * Why only one resting order: Angel One's margin engine only treats a single resting
  * SELL order against an existing long as a margin-free square-off. Placing both a
  * Target LIMIT and a SL STOPLOSS_LIMIT simultaneously makes the broker treat the second
@@ -545,12 +551,28 @@ public class Breakout925StrategyEngine {
         if (tick.token().equals(run.getPeToken())) handleLegTick(run, "PE", tick.ltp());
     }
 
+    /**
+     * Entries are sequential, not simultaneous: only one leg may be open at a time.
+     * The first leg to break out takes the entry. If it hits target, the strategy is
+     * done - the other leg is never taken even if it breaks out later. Only a stop-loss
+     * on the first leg allows the second leg to take its own entry.
+     */
+    private boolean canEnter(Breakout925Run run, String side) {
+        String otherSide = "CE".equals(side) ? "PE" : "CE";
+        String otherToken = "CE".equals(otherSide) ? run.getCeToken() : run.getPeToken();
+        if (otherToken == null) return true;
+        String otherStatus = "CE".equals(otherSide) ? run.getCeLegStatus() : run.getPeLegStatus();
+        if ("WATCHING".equals(otherStatus) || "ENTRY_FAILED".equals(otherStatus)) return true;
+        if ("CLOSED".equals(otherStatus)) return "Stop loss hit".equals(run.getLastExitReason());
+        return false; // other leg currently open, or already SKIPPED
+    }
+
     private synchronized void handleLegTick(Breakout925Run run, String side, double ltp) {
         String legStatus = "CE".equals(side) ? run.getCeLegStatus() : run.getPeLegStatus();
 
         if ("WATCHING".equals(legStatus)) {
             Double candleHigh = "CE".equals(side) ? run.getCeCandleHigh() : run.getPeCandleHigh();
-            if (candleHigh != null && ltp > candleHigh) enterLeg(run, side, ltp);
+            if (candleHigh != null && ltp > candleHigh && canEnter(run, side)) enterLeg(run, side, ltp);
             return;
         }
 
@@ -693,6 +715,11 @@ public class Breakout925StrategyEngine {
         String otherLegStatus = "CE".equals(otherSide) ? run.getCeLegStatus() : run.getPeLegStatus();
         if (isLegPositionOpen(otherLegStatus)) {
             forceExitLeg(run, otherSide, reason + " (other leg)");
+        } else if ("Target hit".equals(reason) && "WATCHING".equals(otherLegStatus)) {
+            // Sequential entries: a win on this leg means the strategy is done - the
+            // other leg is never taken even if it breaks out later.
+            if ("CE".equals(otherSide)) run.setCeLegStatus("SKIPPED"); else run.setPeLegStatus("SKIPPED");
+            log(run, "SKIPPED", otherSide + " leg skipped - " + side + " already hit target, strategy stops here.");
         }
 
         run.setLastExitSide(side);
@@ -729,9 +756,13 @@ public class Breakout925StrategyEngine {
         log(run, "EXIT", side + " exited: " + reason + " at " + exitPrice + " (realized " + String.format("%.2f", realizedPnl) + ").");
     }
 
+    private boolean isLegConcluded(String legStatus) {
+        return "CLOSED".equals(legStatus) || "ENTRY_FAILED".equals(legStatus) || "SKIPPED".equals(legStatus);
+    }
+
     private void maybeFinishRun(Breakout925Run run) {
-        boolean ceDone = run.getCeToken() == null || "CLOSED".equals(run.getCeLegStatus()) || "ENTRY_FAILED".equals(run.getCeLegStatus());
-        boolean peDone = run.getPeToken() == null || "CLOSED".equals(run.getPeLegStatus()) || "ENTRY_FAILED".equals(run.getPeLegStatus());
+        boolean ceDone = run.getCeToken() == null || isLegConcluded(run.getCeLegStatus());
+        boolean peDone = run.getPeToken() == null || isLegConcluded(run.getPeLegStatus());
         boolean anyEntered = "CLOSED".equals(run.getCeLegStatus()) || "CLOSED".equals(run.getPeLegStatus());
         if (ceDone && peDone && anyEntered && !"DONE".equals(run.getStatus())) {
             unsubscribeRunTokens(run);
