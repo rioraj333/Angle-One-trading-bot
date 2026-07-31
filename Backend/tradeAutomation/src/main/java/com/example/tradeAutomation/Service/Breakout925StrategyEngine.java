@@ -379,19 +379,7 @@ public class Breakout925StrategyEngine {
             // SELL against a long as margin-free square-off; a second one (the old target
             // LIMIT) gets margin-blocked as a fresh naked short and can be rejected for
             // insufficient funds. Target is exited via tick-watch + market SELL instead.
-            Map<String, Object> slOrder = new HashMap<>();
-            slOrder.put("variety", "STOPLOSS");
-            slOrder.put("tradingsymbol", symbol);
-            slOrder.put("symboltoken", token);
-            slOrder.put("transactiontype", "SELL");
-            slOrder.put("exchange", run.getExchSeg());
-            slOrder.put("ordertype", "STOPLOSS_LIMIT");
-            slOrder.put("producttype", "INTRADAY");
-            slOrder.put("duration", "DAY");
-            slOrder.put("triggerprice", String.valueOf(stopLoss));
-            slOrder.put("price", String.valueOf(Math.max(stopLoss - 0.5, 0.05)));
-            slOrder.put("quantity", String.valueOf(totalQty(run)));
-            String slOrderId = extractOrderId(orderService.placeOrder(slOrder));
+            String slOrderId = placeStopLossOrder(run, symbol, token, stopLoss);
             if (slOrderId == null) log(run, "ORDER_FAILED", side + " stop-loss order failed to place.");
 
             if ("CE".equals(side)) {
@@ -420,6 +408,22 @@ public class Breakout925StrategyEngine {
         }
         run.setUpdatedAt(LocalDateTime.now());
         runRepository.save(run);
+    }
+
+    private String placeStopLossOrder(Breakout925Run run, String symbol, String token, double stopLoss) {
+        Map<String, Object> slOrder = new HashMap<>();
+        slOrder.put("variety", "STOPLOSS");
+        slOrder.put("tradingsymbol", symbol);
+        slOrder.put("symboltoken", token);
+        slOrder.put("transactiontype", "SELL");
+        slOrder.put("exchange", run.getExchSeg());
+        slOrder.put("ordertype", "STOPLOSS_LIMIT");
+        slOrder.put("producttype", "INTRADAY");
+        slOrder.put("duration", "DAY");
+        slOrder.put("triggerprice", String.valueOf(stopLoss));
+        slOrder.put("price", String.valueOf(Math.max(stopLoss - 0.5, 0.05)));
+        slOrder.put("quantity", String.valueOf(totalQty(run)));
+        return extractOrderId(orderService.placeOrder(slOrder));
     }
 
     private void cancelLegOrders(Breakout925Run run, String side) {
@@ -574,28 +578,44 @@ public class Breakout925StrategyEngine {
 
     /**
      * LIVE-mode target exit: there is no resting target order (see class-level note), so a
-     * tick crossing the target fires an immediate MARKET SELL. The resting SL is cancelled
-     * only after that sell succeeds - if the market order fails, the SL stays in place as
-     * protection and the next tick above target will retry.
+     * tick crossing the target fires an immediate MARKET SELL. The resting SL must be
+     * cancelled FIRST, before that market sell is placed - Angel One only treats ONE
+     * resting SELL against a long as margin-free, so placing the market sell while the SL
+     * is still resting gets it margin-blocked as a fresh naked short and rejected for
+     * insufficient funds (confirmed via a real LIVE rejection - the earlier sell-then-
+     * cancel ordering recreated the exact bug this whole redesign was meant to fix).
+     * If the market sell still fails after the SL is gone, a fresh SL is re-placed
+     * immediately so the position is never left unprotected.
      */
     private void exitLiveOnTargetTick(Breakout925Run run, String side) {
         String symbol = "CE".equals(side) ? run.getCeSymbol() : run.getPeSymbol();
         String token = "CE".equals(side) ? run.getCeToken() : run.getPeToken();
         String slOrderId = "CE".equals(side) ? run.getCeStopLossOrderId() : run.getPeStopLossOrderId();
         Double target = "CE".equals(side) ? run.getCeTarget() : run.getPeTarget();
+        Double stopLoss = "CE".equals(side) ? run.getCeStopLoss() : run.getPeStopLoss();
+
+        if (slOrderId != null) {
+            Map<String, Object> cancelResp = orderService.cancelOrder("STOPLOSS", slOrderId);
+            if (cancelResp == null || !Boolean.TRUE.equals(cancelResp.get("status"))) {
+                log(run, "CANCEL_FAILED", side + " stop-loss order " + slOrderId + " cancel failed before target exit - stop-loss remains active as protection, will retry on next tick.");
+                return;
+            }
+            if ("CE".equals(side)) run.setCeStopLossOrderId(null); else run.setPeStopLossOrderId(null);
+        }
 
         String exitOrderId = placeLiveOrder(run, "SELL", symbol, token, "Target exit (" + side + ")");
         if (exitOrderId == null) {
-            log(run, "ORDER_FAILED", side + " target-tick market exit failed - stop-loss order remains active as protection, will retry on next tick.");
+            String newSlOrderId = stopLoss != null ? placeStopLossOrder(run, symbol, token, stopLoss) : null;
+            if ("CE".equals(side)) run.setCeStopLossOrderId(newSlOrderId); else run.setPeStopLossOrderId(newSlOrderId);
+            run.setUpdatedAt(LocalDateTime.now());
+            runRepository.save(run);
+            log(run, "ORDER_FAILED", side + " target-tick market exit failed after cancelling stop-loss - "
+                    + (newSlOrderId != null
+                        ? "re-armed stop-loss as protection, will retry target exit on next tick."
+                        : "FAILED TO RE-ARM STOP-LOSS - position is UNPROTECTED, manual broker attention needed immediately."));
             return;
         }
 
-        if (slOrderId != null) {
-            Map<String, Object> resp = orderService.cancelOrder("STOPLOSS", slOrderId);
-            if (resp == null || !Boolean.TRUE.equals(resp.get("status"))) {
-                log(run, "CANCEL_FAILED", side + " stop-loss order " + slOrderId + " cancel failed after target exit - manual broker attention needed.");
-            }
-        }
         handleExit(run, side, "Target hit", target != null ? target : liveLtp.getOrDefault(token, 0.0));
     }
 
