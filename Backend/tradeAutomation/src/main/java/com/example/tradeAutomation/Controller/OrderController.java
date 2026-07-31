@@ -1,5 +1,6 @@
 package com.example.tradeAutomation.Controller;
 
+import java.util.List;
 import java.util.Map;
 
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -41,5 +42,10 @@ public class OrderController {
     @DeleteMapping("/cancel")
     public Map<String, Object> cancel(@RequestBody CancelRequest request) {
         return orderService.cancelOrder(request.variety(), request.orderid());
+    }
+
+    @PostMapping("/margin")
+    public Map<String, Object> margin(@RequestBody List<Map<String, Object>> positions) {
+        return orderService.getMarginBatch(positions);
     }
 }

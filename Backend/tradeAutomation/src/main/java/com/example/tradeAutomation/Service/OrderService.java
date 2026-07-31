@@ -1,6 +1,7 @@
 package com.example.tradeAutomation.Service;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 import org.springframework.stereotype.Service;
@@ -56,5 +57,18 @@ public class OrderService {
         body.put("variety", variety);
         body.put("orderid", orderId);
         return smartApiClient.post("/rest/secure/angelbroking/order/v1/cancelOrder", body, sessionOpt.get().getAccessToken());
+    }
+
+    /**
+     * Simulates the margin required for a basket of positions/orders without placing
+     * anything real - lets us verify margin behavior (e.g. whether two resting SELL
+     * orders against one long are both treated as margin-free) before risking it live.
+     */
+    public Map<String, Object> getMarginBatch(List<Map<String, Object>> positions) {
+        var sessionOpt = sessionStore.getCurrentSession();
+        if (sessionOpt.isEmpty()) return unauthenticated();
+        Map<String, Object> body = new HashMap<>();
+        body.put("positions", positions);
+        return smartApiClient.post("/rest/secure/angelbroking/margin/v1/batch", body, sessionOpt.get().getAccessToken());
     }
 }
