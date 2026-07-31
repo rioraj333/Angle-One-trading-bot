@@ -463,6 +463,7 @@ export class Breakout925Component implements OnInit, OnDestroy {
       case 'BRACKET_PLACED': return 'Target/SL live';
       case 'CLOSED': return 'Closed';
       case 'ENTRY_FAILED': return 'Entry failed — check broker';
+      case 'SKIPPED': return 'Skipped — other leg already hit target';
       default: return status || '—';
     }
   }
