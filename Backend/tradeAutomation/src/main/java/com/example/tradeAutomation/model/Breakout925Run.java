@@ -2,6 +2,9 @@ package com.example.tradeAutomation.model;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.stream.Collectors;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -39,8 +42,17 @@ public class Breakout925Run {
     @Column(nullable = false)
     private String candleToTime;
 
+    /**
+     * Comma-separated target points, one per configured trade attempt (e.g. "15.0,8.0").
+     * Trade 1 uses index 0, trade 2 index 1, etc - see currentTradeIndex. Use
+     * getTargetPointsList()/setTargetPointsList() rather than this raw column directly.
+     */
     @Column(nullable = false)
-    private Double targetPoints;
+    private String targetPointsCsv;
+
+    /** 0-based index into targetPointsList - which configured trade is currently in play. */
+    @Column(nullable = false)
+    private Integer currentTradeIndex = 0;
 
     @Column(nullable = false)
     private String status = "WAITING_CANDLE"; // WAITING_CANDLE, WATCHING_BREAKOUT, DONE
@@ -106,8 +118,23 @@ public class Breakout925Run {
     public void setCandleFromTime(String candleFromTime) { this.candleFromTime = candleFromTime; }
     public String getCandleToTime() { return candleToTime; }
     public void setCandleToTime(String candleToTime) { this.candleToTime = candleToTime; }
-    public Double getTargetPoints() { return targetPoints; }
-    public void setTargetPoints(Double targetPoints) { this.targetPoints = targetPoints; }
+    public String getTargetPointsCsv() { return targetPointsCsv; }
+    public void setTargetPointsCsv(String targetPointsCsv) { this.targetPointsCsv = targetPointsCsv; }
+    public Integer getCurrentTradeIndex() { return currentTradeIndex; }
+    public void setCurrentTradeIndex(Integer currentTradeIndex) { this.currentTradeIndex = currentTradeIndex; }
+
+    public List<Double> getTargetPointsList() {
+        List<Double> list = new ArrayList<>();
+        if (targetPointsCsv == null || targetPointsCsv.isBlank()) return list;
+        for (String part : targetPointsCsv.split(",")) {
+            list.add(Double.parseDouble(part.trim()));
+        }
+        return list;
+    }
+
+    public void setTargetPointsList(List<Double> targets) {
+        this.targetPointsCsv = targets.stream().map(String::valueOf).collect(Collectors.joining(","));
+    }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
     public Long getPresetId() { return presetId; }

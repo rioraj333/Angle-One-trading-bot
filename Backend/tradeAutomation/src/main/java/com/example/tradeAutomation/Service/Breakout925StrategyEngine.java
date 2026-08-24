@@ -91,7 +91,7 @@ public class Breakout925StrategyEngine {
 
     public record Breakout925StartRequest(
             String indexName, String exchSeg, String candleFromTime, String candleToTime,
-            Integer quantity, Double targetPoints, String mode, LegPick ce, LegPick pe, Long presetId) {}
+            Integer quantity, List<Double> targetPointsList, String mode, LegPick ce, LegPick pe, Long presetId) {}
 
     // ─── Start / Stop / Modify ──────────────────────────────────────────────────
 
@@ -106,8 +106,13 @@ public class Breakout925StrategyEngine {
         if (request.ce() == null && request.pe() == null) {
             throw new IllegalStateException("Select at least one of CE or PE.");
         }
-        if (request.targetPoints() == null || request.targetPoints() <= 0) {
-            throw new IllegalStateException("Target points must be greater than 0.");
+        if (request.targetPointsList() == null || request.targetPointsList().isEmpty()) {
+            throw new IllegalStateException("At least one trade target must be configured.");
+        }
+        for (Double t : request.targetPointsList()) {
+            if (t == null || t <= 0) {
+                throw new IllegalStateException("Each trade target must be greater than 0.");
+            }
         }
 
         Breakout925Run run = new Breakout925Run();
@@ -118,7 +123,8 @@ public class Breakout925StrategyEngine {
         run.setQuantity(request.quantity());
         run.setCandleFromTime(request.candleFromTime());
         run.setCandleToTime(request.candleToTime());
-        run.setTargetPoints(request.targetPoints());
+        run.setTargetPointsList(request.targetPointsList());
+        run.setCurrentTradeIndex(0);
         run.setPresetId(request.presetId());
         run.setStatus("WAITING_CANDLE");
         run.setCreatedAt(LocalDateTime.now());
@@ -162,7 +168,8 @@ public class Breakout925StrategyEngine {
         }
 
         log(run, "STARTED", "Armed " + request.mode() + " run for " + request.indexName() + ", quantity "
-                + request.quantity() + " lots, target " + request.targetPoints() + " pts.");
+                + request.quantity() + " lots, " + request.targetPointsList().size() + " trade(s) configured - targets "
+                + request.targetPointsList() + " pts.");
         return getState();
     }
 
@@ -377,7 +384,7 @@ public class Breakout925StrategyEngine {
         String token = "CE".equals(side) ? run.getCeToken() : run.getPeToken();
         Double entryPrice = "CE".equals(side) ? run.getCeEntryPrice() : run.getPeEntryPrice();
         Double candleLow = "CE".equals(side) ? run.getCeCandleLow() : run.getPeCandleLow();
-        double target = entryPrice + run.getTargetPoints();
+        double target = entryPrice + currentTarget(run);
         double stopLoss = candleLow;
 
         if ("LIVE".equals(run.getMode())) {
@@ -476,9 +483,10 @@ public class Breakout925StrategyEngine {
             Long tradeId = "CE".equals(side) ? run.getCeTradeId() : run.getPeTradeId();
             if (tradeId != null) {
                 final double fillPrice = avgPrice;
+                final double target = fillPrice + currentTarget(run);
                 tradeRepository.findById(tradeId).ifPresent(trade -> {
                     trade.setEntryPrice(fillPrice);
-                    trade.setTarget(fillPrice + run.getTargetPoints());
+                    trade.setTarget(target);
                     tradeRepository.save(trade);
                 });
             }
@@ -665,7 +673,7 @@ public class Breakout925StrategyEngine {
         trade.setToken(token);
         trade.setQuantity(run.getQuantity());
         trade.setEntryPrice(ltp);
-        trade.setTarget(ltp + run.getTargetPoints());
+        trade.setTarget(ltp + currentTarget(run));
         trade.setStopLoss(candleLow);
         trade.setStatus("OPEN");
         trade.setEntryTime(LocalDateTime.now());
@@ -705,6 +713,15 @@ public class Breakout925StrategyEngine {
                 + ("LIVE".equals(run.getMode()) ? " (order placed, awaiting fill confirmation)." : " (paper, confirmed immediately)."));
     }
 
+    /**
+     * Multi-trade cascade: each run can be configured with several trade attempts, each
+     * with its own target (stop-loss is always the reference candle low, for every
+     * attempt). A TARGET hit is a win - the run stops right there, no further attempts,
+     * regardless of how many trade slots are left unused. A STOP-LOSS hit is a loss -
+     * if another trade slot is configured, the leg that just closed re-arms and goes
+     * back to watching for the next breakout (using the next trade's target); once the
+     * configured trades are used up, it stays closed for good like today.
+     */
     private synchronized void handleExit(Breakout925Run run, String side, String reason, double exitPrice) {
         String legStatus = "CE".equals(side) ? run.getCeLegStatus() : run.getPeLegStatus();
         if ("CLOSED".equals(legStatus)) return;
@@ -713,13 +730,26 @@ public class Breakout925StrategyEngine {
 
         String otherSide = "CE".equals(side) ? "PE" : "CE";
         String otherLegStatus = "CE".equals(otherSide) ? run.getCeLegStatus() : run.getPeLegStatus();
+
         if (isLegPositionOpen(otherLegStatus)) {
             forceExitLeg(run, otherSide, reason + " (other leg)");
-        } else if ("Target hit".equals(reason) && "WATCHING".equals(otherLegStatus)) {
-            // Sequential entries: a win on this leg means the strategy is done - the
-            // other leg is never taken even if it breaks out later.
-            if ("CE".equals(otherSide)) run.setCeLegStatus("SKIPPED"); else run.setPeLegStatus("SKIPPED");
-            log(run, "SKIPPED", otherSide + " leg skipped - " + side + " already hit target, strategy stops here.");
+        } else if ("Target hit".equals(reason)) {
+            // A win ends the run here - the other leg is never taken even if it breaks
+            // out later, and any further configured trades are abandoned unused.
+            if ("WATCHING".equals(otherLegStatus)) {
+                markSkipped(run, otherSide, side + " already hit target, strategy stops here.");
+            }
+        } else if ("Stop loss hit".equals(reason)) {
+            List<Double> targets = run.getTargetPointsList();
+            boolean moreTradesConfigured = run.getCurrentTradeIndex() + 1 < targets.size();
+            if (moreTradesConfigured) {
+                run.setCurrentTradeIndex(run.getCurrentTradeIndex() + 1);
+                rearmLeg(run, side);
+                log(run, "NEXT_TRADE", "Trade " + (run.getCurrentTradeIndex() + 1) + " of " + targets.size()
+                        + " armed - target " + targets.get(run.getCurrentTradeIndex()) + " pts. Watching for next breakout.");
+            } else if ("WATCHING".equals(otherLegStatus)) {
+                markSkipped(run, otherSide, "all " + targets.size() + " configured trade(s) used, strategy stops here.");
+            }
         }
 
         run.setLastExitSide(side);
@@ -729,6 +759,37 @@ public class Breakout925StrategyEngine {
         runRepository.save(run);
 
         maybeFinishRun(run);
+    }
+
+    private void markSkipped(Breakout925Run run, String side, String reasonMsg) {
+        if ("CE".equals(side)) run.setCeLegStatus("SKIPPED"); else run.setPeLegStatus("SKIPPED");
+        log(run, "SKIPPED", side + " leg skipped - " + reasonMsg);
+    }
+
+    /** Resets a leg back to WATCHING for its next trade attempt after a stop-loss exit. */
+    private void rearmLeg(Breakout925Run run, String side) {
+        if ("CE".equals(side)) {
+            run.setCeLegStatus("WATCHING");
+            run.setCeEntryOrderId(null);
+            run.setCeEntryPrice(null);
+            run.setCeEntryConfirmedAt(null);
+            run.setCeTarget(null);
+            run.setCeTargetOrderId(null);
+            run.setCeStopLoss(null);
+            run.setCeStopLossOrderId(null);
+            run.setCeTradeId(null);
+        } else {
+            run.setPeLegStatus("WATCHING");
+            run.setPeEntryOrderId(null);
+            run.setPeEntryPrice(null);
+            run.setPeEntryConfirmedAt(null);
+            run.setPeTarget(null);
+            run.setPeTargetOrderId(null);
+            run.setPeStopLoss(null);
+            run.setPeStopLossOrderId(null);
+            run.setPeTradeId(null);
+        }
+        maxima.remove(side);
     }
 
     private void closeLeg(Breakout925Run run, String side, String reason, double exitPrice) {
@@ -810,6 +871,13 @@ public class Breakout925StrategyEngine {
         return run.getQuantity() * LOT_SIZE_BY_INDEX.getOrDefault(run.getIndexName(), 1);
     }
 
+    /** The target (points) for whichever trade attempt is currently in play - see currentTradeIndex. */
+    private double currentTarget(Breakout925Run run) {
+        List<Double> targets = run.getTargetPointsList();
+        int idx = Math.min(run.getCurrentTradeIndex(), targets.size() - 1);
+        return targets.get(idx);
+    }
+
     private void unsubscribeRunTokens(Breakout925Run run) {
         List<String> tokens = new ArrayList<>();
         if (run.getCeToken() != null) tokens.add(run.getCeToken());
@@ -840,7 +908,8 @@ public class Breakout925StrategyEngine {
         state.put("indexName", run.getIndexName());
         state.put("exchSeg", run.getExchSeg());
         state.put("quantity", run.getQuantity());
-        state.put("targetPoints", run.getTargetPoints());
+        state.put("targetPointsList", run.getTargetPointsList());
+        state.put("currentTradeIndex", run.getCurrentTradeIndex());
         state.put("presetId", run.getPresetId());
         state.put("candleFromTime", run.getCandleFromTime());
         state.put("candleToTime", run.getCandleToTime());

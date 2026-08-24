@@ -1,6 +1,9 @@
 package com.example.tradeAutomation.model;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.stream.Collectors;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -41,8 +44,9 @@ public class Breakout925Preset {
     @Column(nullable = false)
     private Integer quantity;
 
+    /** Comma-separated target points, one per configured trade attempt (e.g. "15.0,8.0"). */
     @Column(nullable = false)
-    private Double targetPoints;
+    private String targetPointsCsv;
 
     @Column(nullable = false)
     private String mode; // PAPER or LIVE
@@ -67,8 +71,21 @@ public class Breakout925Preset {
     public void setCandleToTime(String candleToTime) { this.candleToTime = candleToTime; }
     public Integer getQuantity() { return quantity; }
     public void setQuantity(Integer quantity) { this.quantity = quantity; }
-    public Double getTargetPoints() { return targetPoints; }
-    public void setTargetPoints(Double targetPoints) { this.targetPoints = targetPoints; }
+    public String getTargetPointsCsv() { return targetPointsCsv; }
+    public void setTargetPointsCsv(String targetPointsCsv) { this.targetPointsCsv = targetPointsCsv; }
+
+    public List<Double> getTargetPointsList() {
+        List<Double> list = new ArrayList<>();
+        if (targetPointsCsv == null || targetPointsCsv.isBlank()) return list;
+        for (String part : targetPointsCsv.split(",")) {
+            list.add(Double.parseDouble(part.trim()));
+        }
+        return list;
+    }
+
+    public void setTargetPointsList(List<Double> targets) {
+        this.targetPointsCsv = targets.stream().map(String::valueOf).collect(Collectors.joining(","));
+    }
     public String getMode() { return mode; }
     public void setMode(String mode) { this.mode = mode; }
     public LocalDateTime getCreatedAt() { return createdAt; }

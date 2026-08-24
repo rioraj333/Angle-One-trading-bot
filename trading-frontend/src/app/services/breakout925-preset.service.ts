@@ -12,7 +12,7 @@ export interface Breakout925Preset {
   candleFromTime: string;
   candleToTime: string;
   quantity: number;
-  targetPoints: number;
+  targetPointsList: number[];
   mode: 'PAPER' | 'LIVE';
   createdAt: string;
 }
@@ -26,7 +26,7 @@ export interface SaveBreakout925PresetRequest {
   candleFromTime: string;
   candleToTime: string;
   quantity: number;
-  targetPoints: number;
+  targetPointsList: number[];
   mode: 'PAPER' | 'LIVE';
 }
 

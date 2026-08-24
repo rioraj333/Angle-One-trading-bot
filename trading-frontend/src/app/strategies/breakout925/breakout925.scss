@@ -215,6 +215,106 @@
   }
 }
 
+.field-hint {
+  font-size: 12px;
+  color: rgba(255,255,255,0.4);
+  margin: 8px 0 0;
+  line-height: 1.5;
+}
+
+.field-hint-inline {
+  font-size: 11px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+  color: rgba(255,255,255,0.35);
+  margin-left: 6px;
+}
+
+.trade-targets-row {
+  margin-bottom: 8px;
+}
+
+.trade-target-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.trade-target-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px 6px 12px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 999px;
+}
+
+.chip-idx {
+  font-size: 11px;
+  font-weight: 700;
+  color: #a5b4fc;
+  white-space: nowrap;
+}
+
+.chip-input {
+  width: 52px;
+  padding: 4px 2px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid rgba(255,255,255,0.15);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: center;
+  outline: none;
+  -moz-appearance: textfield;
+
+  &::-webkit-outer-spin-button, &::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  &:focus { border-bottom-color: #4f46e5; }
+}
+
+.chip-unit {
+  font-size: 11px;
+  color: rgba(255,255,255,0.4);
+}
+
+.chip-remove {
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.5);
+  font-size: 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+
+  &:hover:not(:disabled) { background: rgba(255,59,48,0.2); color: #ff6b6b; }
+  &:disabled { opacity: 0.4; cursor: not-allowed; }
+}
+
+.chip-add {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 14px;
+  background: none;
+  border: 1px dashed rgba(79,70,229,0.4);
+  border-radius: 999px;
+  color: #a5b4fc;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:hover:not(:disabled) { background: rgba(79,70,229,0.15); border-style: solid; }
+  &:disabled { opacity: 0.4; cursor: not-allowed; }
+}
+
 .live-warning {
   background: rgba(255,193,7,0.1);
   border: 1px solid rgba(255,193,7,0.25);

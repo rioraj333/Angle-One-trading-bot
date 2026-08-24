@@ -164,7 +164,7 @@ public class Breakout925DeployScheduler {
         Breakout925StartRequest startRequest = new Breakout925StartRequest(
                 preset.getIndexName(), String.valueOf(search.get("exchSeg")),
                 preset.getCandleFromTime(), preset.getCandleToTime(),
-                preset.getQuantity(), preset.getTargetPoints(), preset.getMode(),
+                preset.getQuantity(), preset.getTargetPointsList(), preset.getMode(),
                 ce != null ? ce.pick() : null, pe != null ? pe.pick() : null, preset.getId());
         try {
             Map<String, Object> result = engine.start(startRequest);
