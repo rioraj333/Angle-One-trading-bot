@@ -10,6 +10,10 @@
       @if (deployedPreset(); as dp) {
         <span class="mode-pill">{{ dp.name }} &middot; {{ dp.selectionMode }}</span>
       }
+      @if ((runState()?.targetPointsList?.length ?? 0) > 1) {
+        <span class="mode-pill">Trade {{ (runState()!.currentTradeIndex ?? 0) + 1 }} of {{ runState()!.targetPointsList!.length }}
+          &middot; target {{ runState()!.targetPointsList![runState()!.currentTradeIndex ?? 0] }}pts</span>
+      }
     }
     @if (!running()) {
       <button class="btn-toggle-tick" (click)="startStrategy()">Start</button>
@@ -69,17 +73,43 @@
           </div>
 
           <div class="form-row">
-            <label for="target">Target (points)</label>
-            <input id="target" type="number" class="select-input" [(ngModel)]="targetPoints" min="1" [disabled]="running()" />
-          </div>
-
-          <div class="form-row">
             <label>Mode</label>
             <div class="mode-toggle">
               <button [class.active]="mode === 'PAPER'" (click)="mode = 'PAPER'" [disabled]="running()">Paper</button>
               <button [class.active]="mode === 'LIVE'" (click)="mode = 'LIVE'" [disabled]="running()">Live</button>
             </div>
           </div>
+        </div>
+
+        <div class="form-row trade-targets-row">
+          <label>
+            Trade targets (points)
+            <span class="field-hint-inline">— stop loss is always the candle low, for every trade</span>
+          </label>
+          <div class="trade-target-chips">
+            @for (t of targetPointsList; track $index) {
+              <div class="trade-target-chip">
+                <span class="chip-idx">T{{ $index + 1 }}</span>
+                <input
+                  type="number"
+                  class="chip-input"
+                  [ngModel]="t"
+                  (ngModelChange)="targetPointsList[$index] = $event"
+                  min="1"
+                  [disabled]="running()"
+                />
+                <span class="chip-unit">pts</span>
+                @if (targetPointsList.length > 1) {
+                  <button type="button" class="chip-remove" (click)="removeTradeTarget($index)" [disabled]="running()" title="Remove this trade">&#10005;</button>
+                }
+              </div>
+            }
+            <button type="button" class="chip-add" (click)="addTradeTarget()" [disabled]="running()">+ Add trade</button>
+          </div>
+          <p class="field-hint">
+            If a trade hits its target, the strategy stops for the day. If it hits stop loss instead, the next
+            configured trade (if any) arms and waits for the next breakout.
+          </p>
         </div>
 
         <div class="settings-divider"></div>

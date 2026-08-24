@@ -52,7 +52,9 @@ export class Breakout925Component implements OnInit, OnDestroy {
   quantity = 1;
   mode: 'PAPER' | 'LIVE' = 'PAPER';
   quantityOptions = [1, 2, 3, 5, 10];
-  targetPoints = 15;
+  /** One target (points) per configured trade attempt. Trade 1 is index 0, trade 2 index 1, etc.
+   *  Stop-loss is always the reference candle low for every trade - not configurable here. */
+  targetPointsList: number[] = [15];
   newPresetName = '';
   newPresetSelectionMode = signal<'MANUAL' | 'AUTO'>('MANUAL');
   presets = signal<Breakout925Preset[]>([]);
@@ -176,7 +178,7 @@ export class Breakout925Component implements OnInit, OnDestroy {
           if (state.candleFromTime) this.candleFromTime = state.candleFromTime;
           if (state.candleToTime) this.candleToTime = state.candleToTime;
           if (state.quantity != null) this.quantity = state.quantity;
-          if (state.targetPoints != null) this.targetPoints = state.targetPoints;
+          if (state.targetPointsList?.length) this.targetPointsList = state.targetPointsList;
           if (state.mode) this.mode = state.mode;
         }
       });
@@ -241,6 +243,16 @@ export class Breakout925Component implements OnInit, OnDestroy {
     this.selectedPe.set(isDeselect ? null : m);
   }
 
+  addTradeTarget(): void {
+    const last = this.targetPointsList[this.targetPointsList.length - 1];
+    this.targetPointsList = [...this.targetPointsList, last ?? 15];
+  }
+
+  removeTradeTarget(index: number): void {
+    if (this.targetPointsList.length <= 1) return; // always keep at least trade 1
+    this.targetPointsList = this.targetPointsList.filter((_, i) => i !== index);
+  }
+
   startStrategy(): void {
     this.errorMsg.set('');
     const ce = this.selectedCe();
@@ -249,8 +261,8 @@ export class Breakout925Component implements OnInit, OnDestroy {
       this.errorMsg.set('Select at least one of CE or PE.');
       return;
     }
-    if (!this.targetPoints || this.targetPoints <= 0) {
-      this.errorMsg.set('Target (points) must be greater than 0.');
+    if (!this.targetPointsList.length || this.targetPointsList.some((t) => !t || t <= 0)) {
+      this.errorMsg.set('Every trade target (points) must be greater than 0.');
       return;
     }
 
@@ -263,7 +275,7 @@ export class Breakout925Component implements OnInit, OnDestroy {
       candleFromTime: this.candleFromTime,
       candleToTime: this.candleToTime,
       quantity: this.quantity,
-      targetPoints: this.targetPoints,
+      targetPointsList: this.targetPointsList,
       mode: this.mode,
       ce: toPick(ce),
       pe: toPick(pe),
@@ -404,7 +416,7 @@ export class Breakout925Component implements OnInit, OnDestroy {
     this.candleFromTime = preset.candleFromTime;
     this.candleToTime = preset.candleToTime;
     this.quantity = preset.quantity;
-    this.targetPoints = preset.targetPoints;
+    this.targetPointsList = [...preset.targetPointsList];
     this.mode = preset.mode;
     if (autoSearch) this.searchPremium();
   }
@@ -426,7 +438,7 @@ export class Breakout925Component implements OnInit, OnDestroy {
         candleFromTime: this.candleFromTime,
         candleToTime: this.candleToTime,
         quantity: this.quantity,
-        targetPoints: this.targetPoints,
+        targetPointsList: this.targetPointsList,
         mode: this.mode,
       })
       .subscribe({
@@ -463,7 +475,7 @@ export class Breakout925Component implements OnInit, OnDestroy {
       case 'BRACKET_PLACED': return 'Target/SL live';
       case 'CLOSED': return 'Closed';
       case 'ENTRY_FAILED': return 'Entry failed — check broker';
-      case 'SKIPPED': return 'Skipped — other leg already hit target';
+      case 'SKIPPED': return 'Skipped — strategy stopped';
       default: return status || '—';
     }
   }

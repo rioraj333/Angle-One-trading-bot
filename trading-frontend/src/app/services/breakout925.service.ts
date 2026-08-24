@@ -14,7 +14,8 @@ export interface Breakout925StartRequest {
   candleFromTime: string;
   candleToTime: string;
   quantity: number;
-  targetPoints: number;
+  /** One target (points) per configured trade attempt - trade 1 is index 0, trade 2 index 1, etc. */
+  targetPointsList: number[];
   mode: 'PAPER' | 'LIVE';
   ce: Breakout925LegPick | null;
   pe: Breakout925LegPick | null;
@@ -48,7 +49,9 @@ export interface Breakout925State {
   indexName?: string;
   exchSeg?: string;
   quantity?: number;
-  targetPoints?: number;
+  targetPointsList?: number[];
+  /** 0-based - which configured trade attempt is currently in play. */
+  currentTradeIndex?: number;
   candleFromTime?: string;
   candleToTime?: string;
   presetId?: number | null;

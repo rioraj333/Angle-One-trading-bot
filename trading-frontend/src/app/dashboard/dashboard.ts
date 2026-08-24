@@ -3,8 +3,8 @@ import { isPlatformBrowser } from '@angular/common';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
-import { forkJoin, interval, Subscription } from 'rxjs';
-import { startWith } from 'rxjs/operators';
+import { forkJoin, interval, of, Subscription } from 'rxjs';
+import { catchError, startWith, switchMap } from 'rxjs/operators';
 import { AuthService } from '../services/auth.service';
 import { TradingService } from '../services/trading.service';
 import { getMarketStatus, MarketStatus } from '../utils/market-hours';
@@ -20,7 +20,7 @@ interface PresetEditForm {
   candleFromTime: string;
   candleToTime: string;
   quantity: number;
-  targetPoints: number;
+  targetPointsList: number[];
   mode: 'PAPER' | 'LIVE';
 }
 
@@ -130,11 +130,19 @@ export class DashboardComponent implements OnInit, OnDestroy {
   editError = signal('');
   editSaving = signal(false);
 
-  activeRun = signal<{ presetId: number | null; status: string } | null>(null);
+  activeRun = signal<{
+    presetId: number | null;
+    status: string;
+    mode: 'PAPER' | 'LIVE' | '';
+    indexName: string;
+    targetPointsList: number[];
+    currentTradeIndex: number;
+  } | null>(null);
 
   private clockSub?: Subscription;
   private refreshSub?: Subscription;
   private deployStatusSub?: Subscription;
+  private activeRunSub?: Subscription;
 
   constructor(
     private router: Router,
@@ -157,12 +165,35 @@ export class DashboardComponent implements OnInit, OnDestroy {
     this.refreshSub = interval(30_000)
       .pipe(startWith(0))
       .subscribe(() => this.loadAllData());
+
+    // Polls independently of which section is open, so a running strategy shows up
+    // on the Home page (and anywhere else) without having to visit Strategies first.
+    this.activeRunSub = interval(10_000)
+      .pipe(
+        startWith(0),
+        switchMap(() => this.breakout925Service.getState().pipe(catchError(() => of(null)))),
+      )
+      .subscribe((state) => {
+        this.activeRun.set(
+          state?.active
+            ? {
+                presetId: state.presetId ?? null,
+                status: state.status ?? '',
+                mode: state.mode ?? '',
+                indexName: state.indexName ?? '',
+                targetPointsList: state.targetPointsList ?? [],
+                currentTradeIndex: state.currentTradeIndex ?? 0,
+              }
+            : null
+        );
+      });
   }
 
   ngOnDestroy(): void {
     this.clockSub?.unsubscribe();
     this.refreshSub?.unsubscribe();
     this.deployStatusSub?.unsubscribe();
+    this.activeRunSub?.unsubscribe();
   }
 
   loadAllData(): void {
@@ -270,12 +301,24 @@ export class DashboardComponent implements OnInit, OnDestroy {
     this.sidebarOpen.set(false);
   }
 
-  /** Checks the real server state - separate from loadPresets() so it re-checks every time
-   *  you open this section, not just once, so status is accurate even after you've been away. */
+  /** Checks the real server state immediately on opening this section, rather than waiting
+   *  for the next background poll tick (see activeRunSub in ngOnInit), so status is accurate
+   *  right away even if you've been away for a while. */
   private checkActiveRun(): void {
     this.breakout925Service.getState().subscribe({
       next: (state) => {
-        this.activeRun.set(state?.active ? { presetId: state.presetId ?? null, status: state.status ?? '' } : null);
+        this.activeRun.set(
+          state?.active
+            ? {
+                presetId: state.presetId ?? null,
+                status: state.status ?? '',
+                mode: state.mode ?? '',
+                indexName: state.indexName ?? '',
+                targetPointsList: state.targetPointsList ?? [],
+                currentTradeIndex: state.currentTradeIndex ?? 0,
+              }
+            : null
+        );
       },
       error: () => {},
     });
@@ -401,9 +444,19 @@ export class DashboardComponent implements OnInit, OnDestroy {
       candleFromTime: preset.candleFromTime,
       candleToTime: preset.candleToTime,
       quantity: preset.quantity,
-      targetPoints: preset.targetPoints,
+      targetPointsList: [...preset.targetPointsList],
       mode: preset.mode,
     };
+  }
+
+  addEditTradeTarget(): void {
+    const last = this.editForm.targetPointsList[this.editForm.targetPointsList.length - 1];
+    this.editForm.targetPointsList = [...this.editForm.targetPointsList, last ?? 15];
+  }
+
+  removeEditTradeTarget(index: number): void {
+    if (this.editForm.targetPointsList.length <= 1) return;
+    this.editForm.targetPointsList = this.editForm.targetPointsList.filter((_, i) => i !== index);
   }
 
   cancelEditPreset(): void {
@@ -423,8 +476,8 @@ export class DashboardComponent implements OnInit, OnDestroy {
       this.editError.set('Premium "from" must be less than or equal to "to".');
       return;
     }
-    if (this.editForm.targetPoints <= 0) {
-      this.editError.set('Target points must be greater than 0.');
+    if (!this.editForm.targetPointsList.length || this.editForm.targetPointsList.some((t) => !t || t <= 0)) {
+      this.editError.set('Every trade target must be greater than 0.');
       return;
     }
 
@@ -446,7 +499,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
   private blankEditForm(): PresetEditForm {
     return {
       name: '', selectionMode: 'MANUAL', indexName: 'NIFTY', premiumFrom: 100, premiumTo: 200,
-      candleFromTime: '09:20', candleToTime: '09:25', quantity: 1, targetPoints: 15, mode: 'PAPER',
+      candleFromTime: '09:20', candleToTime: '09:25', quantity: 1, targetPointsList: [15], mode: 'PAPER',
     };
   }
 

@@ -43,7 +43,7 @@ public class Breakout925PresetController {
     public record PresetRequest(
             String name, String selectionMode, String indexName,
             Double premiumFrom, Double premiumTo, String candleFromTime, String candleToTime,
-            Integer quantity, Double targetPoints, String mode) {}
+            Integer quantity, List<Double> targetPointsList, String mode) {}
 
     @GetMapping
     public List<Breakout925Preset> list() {
@@ -81,8 +81,13 @@ public class Breakout925PresetController {
         if (!"MANUAL".equals(request.selectionMode()) && !"AUTO".equals(request.selectionMode())) {
             throw new IllegalArgumentException("selectionMode must be MANUAL or AUTO.");
         }
-        if (request.targetPoints() == null || request.targetPoints() <= 0) {
-            throw new IllegalArgumentException("targetPoints must be greater than 0.");
+        if (request.targetPointsList() == null || request.targetPointsList().isEmpty()) {
+            throw new IllegalArgumentException("At least one trade target must be configured.");
+        }
+        for (Double t : request.targetPointsList()) {
+            if (t == null || t <= 0) {
+                throw new IllegalArgumentException("Each trade target must be greater than 0.");
+            }
         }
         if (request.premiumFrom() == null || request.premiumTo() == null || request.premiumFrom() > request.premiumTo()) {
             throw new IllegalArgumentException("premiumFrom/premiumTo must both be set with premiumFrom <= premiumTo.");
@@ -98,7 +103,7 @@ public class Breakout925PresetController {
         preset.setCandleFromTime(request.candleFromTime());
         preset.setCandleToTime(request.candleToTime());
         preset.setQuantity(request.quantity());
-        preset.setTargetPoints(request.targetPoints());
+        preset.setTargetPointsList(request.targetPointsList());
         preset.setMode(request.mode());
     }
 
