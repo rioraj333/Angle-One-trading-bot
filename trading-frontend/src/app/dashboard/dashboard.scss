@@ -352,6 +352,40 @@
   strong { color: #fff; }
 }
 
+.home-active-run {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  padding: 14px 18px;
+  margin-bottom: 18px;
+  background: rgba(20,184,166,0.1);
+  border: 1px solid rgba(20,184,166,0.3);
+  border-radius: 14px;
+
+  .status-dot { width: 9px; height: 9px; background: #2dd4bf; flex-shrink: 0; }
+
+  // LIVE trades real money - call it out with a warning color rather than the
+  // same teal used for PAPER runs, so it's unmistakable at a glance.
+  &.live {
+    background: rgba(255,77,77,0.1);
+    border-color: rgba(255,77,77,0.3);
+    .status-dot { background: #ff4d4d; }
+  }
+
+  .btn-secondary { margin-left: auto; flex-shrink: 0; text-decoration: none; }
+}
+
+.home-active-run-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+
+  strong { font-size: 14px; color: #fff; }
+  span { font-size: 12px; color: rgba(255,255,255,0.55); }
+}
+
 .menu-pnl {
   margin-top: auto;
   padding: 14px;
@@ -637,11 +671,183 @@
   strong { font-size: 15px; color: #fff; }
 }
 
+.op-field-wide {
+  grid-column: 1 / -1;
+}
+
+.op-time-range {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  .op-input { flex: 1; min-width: 0; }
+}
+
+.op-time-sep {
+  font-size: 12px;
+  color: rgba(255,255,255,0.4);
+  flex-shrink: 0;
+}
+
+.field-hint-inline {
+  font-size: 11px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+  color: rgba(255,255,255,0.35);
+}
+
+.trade-target-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.trade-target-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px 6px 12px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 999px;
+}
+
+.chip-idx {
+  font-size: 11px;
+  font-weight: 700;
+  color: #a5b4fc;
+  white-space: nowrap;
+}
+
+.chip-input {
+  width: 52px;
+  padding: 4px 2px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid rgba(255,255,255,0.15);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: center;
+  outline: none;
+  -moz-appearance: textfield;
+
+  &::-webkit-outer-spin-button, &::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  &:focus { border-bottom-color: #4f46e5; }
+}
+
+.chip-unit {
+  font-size: 11px;
+  color: rgba(255,255,255,0.4);
+}
+
+.chip-remove {
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.5);
+  font-size: 10px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+
+  &:hover:not(:disabled) { background: rgba(255,59,48,0.2); color: #ff6b6b; }
+  &:disabled { opacity: 0.4; cursor: not-allowed; }
+}
+
+.chip-add {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 14px;
+  background: none;
+  border: 1px dashed rgba(79,70,229,0.4);
+  border-radius: 999px;
+  color: #a5b4fc;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:hover:not(:disabled) { background: rgba(79,70,229,0.15); border-style: solid; }
+  &:disabled { opacity: 0.4; cursor: not-allowed; }
+}
+
 .order-result {
   padding: 10px 14px; border-radius: 8px;
   font-size: 13px; font-weight: 500;
   &.success { background: rgba(20,184,166,0.12); color: #2dd4bf; border: 1px solid rgba(20,184,166,0.2); }
   &.fail { background: rgba(255,77,77,0.12); color: #ff6b6b; border: 1px solid rgba(255,77,77,0.2); }
+}
+
+.sidebar-backdrop {
+  display: none;
+}
+
+// ─── Mobile ──────────────────────────────────────────────────────────────
+// Below this width the sidebar no longer has room to push the content area
+// (230px expanded / 64px collapsed both eat too much of a ~360-400px phone
+// screen), so it becomes a fixed off-canvas drawer instead, with a tap-to-
+// close backdrop. The content area then always takes the full width.
+@media (max-width: 768px) {
+  .navbar {
+    padding: 0 12px;
+    gap: 8px;
+  }
+
+  .nav-right {
+    gap: 8px;
+  }
+
+  // Secondary nav info that doesn't fit a narrow screen - still reachable
+  // via the sidebar (Strategies) or just not critical at a glance (clock,
+  // full name/id - the avatar alone is enough context).
+  .clock,
+  .user-info,
+  .btn-strategies {
+    display: none;
+  }
+
+  .main-layout {
+    position: relative;
+  }
+
+  .side-menu,
+  .side-menu.collapsed {
+    position: fixed;
+    top: 54px;
+    left: 0;
+    bottom: 0;
+    z-index: 150;
+    width: 230px;
+    min-width: 230px;
+    padding: 16px;
+    box-shadow: 0 0 40px rgba(0,0,0,0.5);
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+  }
+
+  .side-menu:not(.collapsed) {
+    transform: translateX(0);
+  }
+
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    top: 54px;
+    left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 140;
+  }
+
+  .order-panel {
+    width: calc(100vw - 32px);
+    max-width: 380px;
+  }
 }
 
 .op-submit {

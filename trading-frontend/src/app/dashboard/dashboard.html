@@ -48,6 +48,10 @@
 
   <div class="main-layout">
 
+    @if (sidebarOpen()) {
+      <div class="sidebar-backdrop" (click)="toggleSidebar()"></div>
+    }
+
     <aside class="side-menu" [class.collapsed]="!sidebarOpen()">
       <button class="menu-item" [class.active]="activeSection() === 'home'" (click)="setSection('home')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9.5L12 3l9 6.5"/><path d="M5 9.5V21h14V9.5"/><path d="M9 21v-6h6v6"/></svg>
@@ -109,6 +113,25 @@
               </span>
             </div>
           </div>
+
+          @if (activeRun(); as ar) {
+            <div class="home-active-run" [class.live]="ar.mode === 'LIVE'">
+              <span class="status-dot"></span>
+              <div class="home-active-run-body">
+                <strong>{{ ar.mode || 'Strategy' }} strategy running</strong>
+                <span>
+                  {{ ar.indexName }} &middot; {{ ar.status }}
+                  @if (ar.targetPointsList.length > 1) {
+                    &middot; trade {{ ar.currentTradeIndex + 1 }} of {{ ar.targetPointsList.length }}
+                    (target {{ ar.targetPointsList[ar.currentTradeIndex] }}pts)
+                  } @else if (ar.targetPointsList.length === 1) {
+                    &middot; target {{ ar.targetPointsList[0] }}pts
+                  }
+                </span>
+              </div>
+              <a class="btn-secondary" routerLink="/strategies/breakout925">View</a>
+            </div>
+          }
 
           <div class="home-stats">
             <button class="home-stat-card" (click)="setSection('positions')">
@@ -364,17 +387,35 @@
                           <label>Premium To</label>
                           <input type="number" class="op-input" [(ngModel)]="editForm.premiumTo" />
                         </div>
-                        <div class="op-field">
-                          <label>Time From</label>
-                          <input type="time" class="op-input" [(ngModel)]="editForm.candleFromTime" />
+                        <div class="op-field op-field-wide">
+                          <label>Time Range</label>
+                          <div class="op-time-range">
+                            <input type="time" class="op-input" [(ngModel)]="editForm.candleFromTime" />
+                            <span class="op-time-sep">to</span>
+                            <input type="time" class="op-input" [(ngModel)]="editForm.candleToTime" />
+                          </div>
                         </div>
-                        <div class="op-field">
-                          <label>Time To</label>
-                          <input type="time" class="op-input" [(ngModel)]="editForm.candleToTime" />
-                        </div>
-                        <div class="op-field">
-                          <label>Target (points)</label>
-                          <input type="number" class="op-input" [(ngModel)]="editForm.targetPoints" min="1" />
+                        <div class="op-field op-field-wide">
+                          <label>Trade targets (points) <span class="field-hint-inline">— SL is always the candle low</span></label>
+                          <div class="trade-target-chips">
+                            @for (t of editForm.targetPointsList; track $index) {
+                              <div class="trade-target-chip">
+                                <span class="chip-idx">T{{ $index + 1 }}</span>
+                                <input
+                                  type="number"
+                                  class="chip-input"
+                                  [ngModel]="t"
+                                  (ngModelChange)="editForm.targetPointsList[$index] = $event"
+                                  min="1"
+                                />
+                                <span class="chip-unit">pts</span>
+                                @if (editForm.targetPointsList.length > 1) {
+                                  <button type="button" class="chip-remove" (click)="removeEditTradeTarget($index)" title="Remove this trade">&#10005;</button>
+                                }
+                              </div>
+                            }
+                            <button type="button" class="chip-add" (click)="addEditTradeTarget()">+ Add trade</button>
+                          </div>
                         </div>
                         <div class="op-field">
                           <label>Mode</label>
@@ -402,7 +443,7 @@
                   } @else {
                     <div class="preset-card-body">
                       <span>{{ p.indexName }} &middot; premium {{ p.premiumFrom }}&ndash;{{ p.premiumTo }}</span>
-                      <span>{{ p.candleFromTime }}&ndash;{{ p.candleToTime }} &middot; {{ p.quantity }} lot &middot; target {{ p.targetPoints }}pts</span>
+                      <span>{{ p.candleFromTime }}&ndash;{{ p.candleToTime }} &middot; {{ p.quantity }} lot &middot; targets {{ p.targetPointsList?.length ? p.targetPointsList.join('/') + 'pts' : '—' }}</span>
                     </div>
                     <div class="preset-card-actions">
                       <button class="btn-secondary" (click)="deployPreset(p)"
