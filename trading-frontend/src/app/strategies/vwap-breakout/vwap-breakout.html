@@ -89,7 +89,7 @@
 
           <div class="form-row">
             <label>Mode</label>
-            <div class="mode-toggle">
+            <div class="mode-toggle toggle-narrow">
               <button [class.active]="mode === 'PAPER'" (click)="mode = 'PAPER'" [disabled]="running()">Paper</button>
               <button [class.active]="mode === 'LIVE'" (click)="mode = 'LIVE'" [disabled]="running()">Live</button>
             </div>
@@ -98,7 +98,7 @@
 
         <div class="form-row target-type-row">
           <label>Session target type</label>
-          <div class="mode-toggle target-type-toggle">
+          <div class="mode-toggle toggle-narrow">
             <button [class.active]="targetType === 'POINTS'" (click)="targetType = 'POINTS'" [disabled]="running()">Points</button>
             <button [class.active]="targetType === 'PNL'" (click)="targetType = 'PNL'" [disabled]="running()">P&amp;L (&#8377;)</button>
           </div>
@@ -146,7 +146,7 @@
 
           <div class="form-row">
             <label>Exit rule</label>
-            <div class="mode-toggle">
+            <div class="mode-toggle toggle-narrow">
               <button [class.active]="exitMode === 'VWAP_CROSS'" (click)="exitMode = 'VWAP_CROSS'" [disabled]="running()">VWAP cross</button>
               <button [class.active]="exitMode === 'TRAILING_SL'" (click)="exitMode = 'TRAILING_SL'" [disabled]="running()">Trailing SL</button>
             </div>
