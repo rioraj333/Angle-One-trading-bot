@@ -124,8 +124,20 @@ public class Breakout925DeployScheduler {
                 state = new PendingDeploy(s.presetId(), s.presetName(), s.triggerAt(), "FAILED", "Preset was deleted before its trigger time.");
                 return;
             }
-            Map<String, Object> result = executeDeploy(preset);
-            recordCompletion(preset, s.triggerAt(), result);
+            // executeDeploy() can throw an unexpected exception (e.g. a DB/schema issue) rather
+            // than returning a normal error result. Without this catch, that exception escapes
+            // tick() before recordCompletion() ever runs, leaving state stuck on "SCHEDULED" -
+            // which means the *next* tick (1s later) retries the exact same deploy, forever,
+            // hammering the broker's API every second until something else breaks the loop.
+            // Confirmed in production: a DB constraint bug caused ~1000 retries over 16 minutes,
+            // which is what triggered Angel One's own rate limiting on the account.
+            try {
+                Map<String, Object> result = executeDeploy(preset);
+                recordCompletion(preset, s.triggerAt(), result);
+            } catch (Exception e) {
+                state = new PendingDeploy(s.presetId(), s.presetName(), s.triggerAt(), "FAILED",
+                        "Unexpected error during auto-deploy: " + e.getMessage());
+            }
         }
     }
 
