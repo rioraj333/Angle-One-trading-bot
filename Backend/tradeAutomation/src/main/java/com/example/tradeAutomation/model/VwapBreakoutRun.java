@@ -36,6 +36,32 @@ public class VwapBreakoutRun {
     @Column(nullable = false)
     private Double targetPoints;
 
+    /** POINTS (default - a single trade's target hit stops the session, unchanged) or PNL
+     *  (a trade's target/SL hit still resolves that trade the same way, but the session keeps
+     *  cycling trades regardless of win/loss until cumulative realized P&L governs it - see
+     *  pnlTarget/pnlTrailingStep). */
+    @Column(nullable = false)
+    private String targetType = "POINTS";
+
+    /** Cumulative-session P&L target in rupees - only used when targetType=PNL. */
+    private Double pnlTarget;
+
+    /** Optional trailing step in rupees once pnlTarget is first reached - if null/0, pnlTarget
+     *  is a hard stop (session ends the instant cumulative P&L reaches it). If set, the session
+     *  keeps going past that point and only stops if cumulative P&L retraces this many rupees
+     *  from its peak. */
+    private Double pnlTrailingStep;
+
+    /** Running total of realized P&L across every closed trade this session - only meaningful
+     *  when targetType=PNL. */
+    @Column(nullable = false)
+    private Double cumulativeRealizedPnl = 0.0;
+
+    @Column(nullable = false)
+    private boolean pnlTrailingActive = false;
+
+    private Double peakCumulativePnl;
+
     @Column(nullable = false)
     private Integer maxTrades;
 
@@ -105,6 +131,18 @@ public class VwapBreakoutRun {
     public void setQuantity(Integer quantity) { this.quantity = quantity; }
     public Double getTargetPoints() { return targetPoints; }
     public void setTargetPoints(Double targetPoints) { this.targetPoints = targetPoints; }
+    public String getTargetType() { return targetType; }
+    public void setTargetType(String targetType) { this.targetType = targetType; }
+    public Double getPnlTarget() { return pnlTarget; }
+    public void setPnlTarget(Double pnlTarget) { this.pnlTarget = pnlTarget; }
+    public Double getPnlTrailingStep() { return pnlTrailingStep; }
+    public void setPnlTrailingStep(Double pnlTrailingStep) { this.pnlTrailingStep = pnlTrailingStep; }
+    public Double getCumulativeRealizedPnl() { return cumulativeRealizedPnl; }
+    public void setCumulativeRealizedPnl(Double cumulativeRealizedPnl) { this.cumulativeRealizedPnl = cumulativeRealizedPnl; }
+    public boolean isPnlTrailingActive() { return pnlTrailingActive; }
+    public void setPnlTrailingActive(boolean pnlTrailingActive) { this.pnlTrailingActive = pnlTrailingActive; }
+    public Double getPeakCumulativePnl() { return peakCumulativePnl; }
+    public void setPeakCumulativePnl(Double peakCumulativePnl) { this.peakCumulativePnl = peakCumulativePnl; }
     public Integer getMaxTrades() { return maxTrades; }
     public void setMaxTrades(Integer maxTrades) { this.maxTrades = maxTrades; }
     public String getEntryWindowStart() { return entryWindowStart; }

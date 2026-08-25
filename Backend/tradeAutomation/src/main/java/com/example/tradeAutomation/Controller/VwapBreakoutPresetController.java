@@ -29,8 +29,8 @@ public class VwapBreakoutPresetController {
 
     public record PresetRequest(
             String name, String indexName, Double premiumFrom, Double premiumTo,
-            Integer quantity, Double targetPoints, Integer maxTrades,
-            String entryWindowStart, String entryCutoff, String exitMode, String mode) {}
+            Integer quantity, Double targetPoints, String targetType, Double pnlTarget, Double pnlTrailingStep,
+            Integer maxTrades, String entryWindowStart, String entryCutoff, String exitMode, String mode) {}
 
     @GetMapping
     public List<VwapBreakoutPreset> list() {
@@ -68,6 +68,13 @@ public class VwapBreakoutPresetController {
         if (request.targetPoints() == null || request.targetPoints() <= 0) {
             throw new IllegalArgumentException("targetPoints must be greater than 0.");
         }
+        String targetType = request.targetType() != null ? request.targetType() : "POINTS";
+        if (!"POINTS".equals(targetType) && !"PNL".equals(targetType)) {
+            throw new IllegalArgumentException("targetType must be POINTS or PNL.");
+        }
+        if ("PNL".equals(targetType) && (request.pnlTarget() == null || request.pnlTarget() <= 0)) {
+            throw new IllegalArgumentException("pnlTarget must be greater than 0 when targetType is PNL.");
+        }
         if (request.maxTrades() == null || request.maxTrades() <= 0) {
             throw new IllegalArgumentException("maxTrades must be greater than 0.");
         }
@@ -86,6 +93,9 @@ public class VwapBreakoutPresetController {
         preset.setPremiumTo(request.premiumTo());
         preset.setQuantity(request.quantity());
         preset.setTargetPoints(request.targetPoints());
+        preset.setTargetType(request.targetType() != null ? request.targetType() : "POINTS");
+        preset.setPnlTarget(request.pnlTarget());
+        preset.setPnlTrailingStep(request.pnlTrailingStep());
         preset.setMaxTrades(request.maxTrades());
         preset.setEntryWindowStart(request.entryWindowStart());
         preset.setEntryCutoff(request.entryCutoff());
