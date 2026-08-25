@@ -96,26 +96,27 @@
           </div>
         </div>
 
-        <div class="settings-grid">
-          <div class="form-row">
-            <label>Session target type</label>
-            <div class="mode-toggle">
-              <button [class.active]="targetType === 'POINTS'" (click)="targetType = 'POINTS'" [disabled]="running()">Points</button>
-              <button [class.active]="targetType === 'PNL'" (click)="targetType = 'PNL'" [disabled]="running()">P&amp;L (&#8377;)</button>
-            </div>
-            <p class="field-hint">
-              @if (targetType === 'POINTS') {
-                Any single trade hitting its points target stops the session for the day (unchanged default).
-              } @else {
-                Trades keep cycling (win or lose) until the session's cumulative realized P&amp;L hits the target below.
-              }
-            </p>
+        <div class="form-row target-type-row">
+          <label>Session target type</label>
+          <div class="mode-toggle target-type-toggle">
+            <button [class.active]="targetType === 'POINTS'" (click)="targetType = 'POINTS'" [disabled]="running()">Points</button>
+            <button [class.active]="targetType === 'PNL'" (click)="targetType = 'PNL'" [disabled]="running()">P&amp;L (&#8377;)</button>
           </div>
+          <p class="field-hint">
+            @if (targetType === 'POINTS') {
+              Any single trade hitting its points target stops the session for the day (unchanged default).
+            } @else {
+              Trades keep cycling (win or lose) until the session's cumulative realized P&amp;L hits the target below.
+            }
+          </p>
+        </div>
 
-          @if (targetType === 'PNL') {
+        @if (targetType === 'PNL') {
+          <div class="settings-grid">
             <div class="form-row">
               <label for="pnlTarget">Session P&amp;L target (&#8377;)</label>
               <input id="pnlTarget" type="number" class="select-input" [(ngModel)]="pnlTarget" min="1" [disabled]="running()" />
+              <p class="field-hint">Stops the session once cumulative realized P&amp;L reaches this - or arms the trailing stop instead, if set.</p>
             </div>
 
             <div class="form-row">
@@ -129,8 +130,8 @@
                 }
               </p>
             </div>
-          }
-        </div>
+          </div>
+        }
 
         <div class="settings-grid">
           <div class="form-row">
