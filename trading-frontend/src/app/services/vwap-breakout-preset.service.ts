@@ -10,6 +10,9 @@ export interface VwapBreakoutPreset {
   premiumTo: number;
   quantity: number;
   targetPoints: number;
+  targetType: 'POINTS' | 'PNL';
+  pnlTarget?: number | null;
+  pnlTrailingStep?: number | null;
   maxTrades: number;
   entryWindowStart: string;
   entryCutoff: string;
@@ -25,6 +28,9 @@ export interface SaveVwapBreakoutPresetRequest {
   premiumTo: number;
   quantity: number;
   targetPoints: number;
+  targetType: 'POINTS' | 'PNL';
+  pnlTarget?: number | null;
+  pnlTrailingStep?: number | null;
   maxTrades: number;
   entryWindowStart: string;
   entryCutoff: string;

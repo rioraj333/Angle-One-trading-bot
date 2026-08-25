@@ -42,6 +42,13 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
   mode: 'PAPER' | 'LIVE' = 'PAPER';
   quantityOptions = [1, 2, 3, 5, 10];
   targetPoints = 15;
+  /** POINTS = today's per-trade points target (unchanged). PNL = individual trades still
+   *  resolve the same way (points target + VWAP-cross SL), but the session keeps cycling
+   *  trades regardless of win/loss until cumulative realized P&L hits pnlTarget (or its
+   *  trailing stop, if pnlTrailingStep is set) - see the engine's checkPnlGovernor(). */
+  targetType: 'POINTS' | 'PNL' = 'POINTS';
+  pnlTarget: number | null = 5000;
+  pnlTrailingStep: number | null = null;
   maxTrades = 3;
   entryWindowStart = '09:25';
   entryCutoff = '15:00';
@@ -149,6 +156,9 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
         if (state.active) {
           if (state.quantity != null) this.quantity = state.quantity;
           if (state.targetPoints != null) this.targetPoints = state.targetPoints;
+          if (state.targetType) this.targetType = state.targetType;
+          if (state.pnlTarget != null) this.pnlTarget = state.pnlTarget;
+          if (state.pnlTrailingStep !== undefined) this.pnlTrailingStep = state.pnlTrailingStep ?? null;
           if (state.maxTrades != null) this.maxTrades = state.maxTrades;
           if (state.entryWindowStart) this.entryWindowStart = state.entryWindowStart;
           if (state.entryCutoff) this.entryCutoff = state.entryCutoff;
@@ -228,6 +238,10 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
       this.errorMsg.set('Trailing stop-loss isn’t available yet - use VWAP cross.');
       return;
     }
+    if (this.targetType === 'PNL' && (!this.pnlTarget || this.pnlTarget <= 0)) {
+      this.errorMsg.set('P&L target (₹) must be greater than 0.');
+      return;
+    }
 
     const toPick = (m: PremiumMatch | null): VwapBreakoutLegPick | null =>
       m ? { strike: m.strike, symbol: m.symbol, token: m.token } : null;
@@ -237,6 +251,9 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
       exchSeg: this.resultsExchSeg(),
       quantity: this.quantity,
       targetPoints: this.targetPoints,
+      targetType: this.targetType,
+      pnlTarget: this.targetType === 'PNL' ? this.pnlTarget : null,
+      pnlTrailingStep: this.targetType === 'PNL' ? this.pnlTrailingStep : null,
       maxTrades: this.maxTrades,
       entryWindowStart: this.entryWindowStart,
       entryCutoff: this.entryCutoff,
@@ -350,6 +367,9 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
     this.premiumTo = preset.premiumTo;
     this.quantity = preset.quantity;
     this.targetPoints = preset.targetPoints;
+    this.targetType = preset.targetType;
+    this.pnlTarget = preset.pnlTarget ?? 5000;
+    this.pnlTrailingStep = preset.pnlTrailingStep ?? null;
     this.maxTrades = preset.maxTrades;
     this.entryWindowStart = preset.entryWindowStart;
     this.entryCutoff = preset.entryCutoff;
@@ -373,6 +393,9 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
         premiumTo: this.premiumTo,
         quantity: this.quantity,
         targetPoints: this.targetPoints,
+        targetType: this.targetType,
+        pnlTarget: this.targetType === 'PNL' ? this.pnlTarget : null,
+        pnlTrailingStep: this.targetType === 'PNL' ? this.pnlTrailingStep : null,
         maxTrades: this.maxTrades,
         entryWindowStart: this.entryWindowStart,
         entryCutoff: this.entryCutoff,

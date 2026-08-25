@@ -11,6 +11,12 @@
         <span class="mode-pill">{{ dp.name }}</span>
       }
       <span class="mode-pill">Trade {{ runState()?.entryCount ?? 0 }} of {{ runState()?.maxTrades ?? maxTrades }}</span>
+      @if (runState()?.targetType === 'PNL') {
+        <span class="mode-pill" [class.ticking]="(runState()?.cumulativeRealizedPnl ?? 0) >= 0">
+          Session P&amp;L {{ fmtPnl(runState()?.cumulativeRealizedPnl) }} / {{ fmtPnl(runState()?.pnlTarget) }}
+          @if (runState()?.pnlTrailingActive) { &middot; trailing active (peak {{ fmtPnl(runState()?.peakCumulativePnl) }}) }
+        </span>
+      }
     }
     @if (!running()) {
       <button class="btn-toggle-tick" (click)="startStrategy()">Start</button>
@@ -70,7 +76,7 @@
           </div>
 
           <div class="form-row">
-            <label for="target">Target (points)</label>
+            <label for="target">{{ targetType === 'PNL' ? 'Per-trade target (points)' : 'Target (points)' }}</label>
             <input id="target" type="number" class="select-input" [(ngModel)]="targetPoints" min="1" [disabled]="running()" />
           </div>
 
@@ -86,6 +92,42 @@
               <button [class.active]="mode === 'LIVE'" (click)="mode = 'LIVE'" [disabled]="running()">Live</button>
             </div>
           </div>
+        </div>
+
+        <div class="settings-grid">
+          <div class="form-row">
+            <label>Session target type</label>
+            <div class="mode-toggle">
+              <button [class.active]="targetType === 'POINTS'" (click)="targetType = 'POINTS'" [disabled]="running()">Points</button>
+              <button [class.active]="targetType === 'PNL'" (click)="targetType = 'PNL'" [disabled]="running()">P&amp;L (&#8377;)</button>
+            </div>
+            <p class="field-hint">
+              @if (targetType === 'POINTS') {
+                Any single trade hitting its points target stops the session for the day (unchanged default).
+              } @else {
+                Trades keep cycling (win or lose) until the session's cumulative realized P&amp;L hits the target below.
+              }
+            </p>
+          </div>
+
+          @if (targetType === 'PNL') {
+            <div class="form-row">
+              <label for="pnlTarget">Session P&amp;L target (&#8377;)</label>
+              <input id="pnlTarget" type="number" class="select-input" [(ngModel)]="pnlTarget" min="1" [disabled]="running()" />
+            </div>
+
+            <div class="form-row">
+              <label for="pnlTrailingStep">Trailing step (&#8377;, optional)</label>
+              <input id="pnlTrailingStep" type="number" class="select-input" [(ngModel)]="pnlTrailingStep" min="0" placeholder="Leave blank for a hard stop" [disabled]="running()" />
+              <p class="field-hint">
+                @if (pnlTrailingStep) {
+                  Once cumulative P&amp;L first reaches &#8377;{{ pnlTarget }}, the session keeps going but stops if it retraces &#8377;{{ pnlTrailingStep }} from its peak.
+                } @else {
+                  Blank = hard stop the instant cumulative P&amp;L reaches &#8377;{{ pnlTarget }}.
+                }
+              </p>
+            </div>
+          }
         </div>
 
         <div class="settings-grid">

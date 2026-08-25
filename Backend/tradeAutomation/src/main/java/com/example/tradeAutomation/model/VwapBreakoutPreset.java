@@ -41,6 +41,12 @@ public class VwapBreakoutPreset {
     private Double targetPoints;
 
     @Column(nullable = false)
+    private String targetType = "POINTS"; // POINTS or PNL
+
+    private Double pnlTarget;
+    private Double pnlTrailingStep;
+
+    @Column(nullable = false)
     private Integer maxTrades;
 
     @Column(nullable = false)
@@ -71,6 +77,12 @@ public class VwapBreakoutPreset {
     public void setQuantity(Integer quantity) { this.quantity = quantity; }
     public Double getTargetPoints() { return targetPoints; }
     public void setTargetPoints(Double targetPoints) { this.targetPoints = targetPoints; }
+    public String getTargetType() { return targetType; }
+    public void setTargetType(String targetType) { this.targetType = targetType; }
+    public Double getPnlTarget() { return pnlTarget; }
+    public void setPnlTarget(Double pnlTarget) { this.pnlTarget = pnlTarget; }
+    public Double getPnlTrailingStep() { return pnlTrailingStep; }
+    public void setPnlTrailingStep(Double pnlTrailingStep) { this.pnlTrailingStep = pnlTrailingStep; }
     public Integer getMaxTrades() { return maxTrades; }
     public void setMaxTrades(Integer maxTrades) { this.maxTrades = maxTrades; }
     public String getEntryWindowStart() { return entryWindowStart; }

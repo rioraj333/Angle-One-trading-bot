@@ -89,7 +89,8 @@ public class VwapBreakoutStrategyEngine {
     public record LegPick(Integer strike, String symbol, String token) {}
 
     public record VwapBreakoutStartRequest(
-            String indexName, String exchSeg, Integer quantity, Double targetPoints, Integer maxTrades,
+            String indexName, String exchSeg, Integer quantity, Double targetPoints, String targetType,
+            Double pnlTarget, Double pnlTrailingStep, Integer maxTrades,
             String entryWindowStart, String entryCutoff, String exitMode, String mode,
             LegPick ce, LegPick pe, Long presetId) {}
 
@@ -121,6 +122,18 @@ public class VwapBreakoutStrategyEngine {
         if (request.exitMode() != null && "TRAILING_SL".equals(request.exitMode())) {
             throw new IllegalStateException("Trailing stop-loss isn't available yet - use VWAP_CROSS.");
         }
+        String targetType = request.targetType() != null ? request.targetType() : "POINTS";
+        if (!"POINTS".equals(targetType) && !"PNL".equals(targetType)) {
+            throw new IllegalStateException("targetType must be POINTS or PNL.");
+        }
+        if ("PNL".equals(targetType)) {
+            if (request.pnlTarget() == null || request.pnlTarget() <= 0) {
+                throw new IllegalStateException("P&L target must be greater than 0.");
+            }
+            if (request.pnlTrailingStep() != null && request.pnlTrailingStep() < 0) {
+                throw new IllegalStateException("P&L trailing step can't be negative.");
+            }
+        }
 
         VwapBreakoutRun run = new VwapBreakoutRun();
         run.setRunDate(LocalDate.now());
@@ -129,6 +142,11 @@ public class VwapBreakoutStrategyEngine {
         run.setExchSeg(request.exchSeg());
         run.setQuantity(request.quantity());
         run.setTargetPoints(request.targetPoints());
+        run.setTargetType(targetType);
+        run.setPnlTarget(request.pnlTarget());
+        run.setPnlTrailingStep(request.pnlTrailingStep());
+        run.setCumulativeRealizedPnl(0.0);
+        run.setPnlTrailingActive(false);
         run.setMaxTrades(request.maxTrades());
         run.setEntryWindowStart(request.entryWindowStart());
         run.setEntryCutoff(request.entryCutoff());
@@ -178,8 +196,13 @@ public class VwapBreakoutStrategyEngine {
             wsClient.subscribe("vwapbreakout", SmartApiWebSocketClient.MODE_LTP, wsExchType, tokens);
         }
 
+        String targetDesc = "PNL".equals(targetType)
+                ? "cumulative session P&L target Rs" + request.pnlTarget()
+                        + (request.pnlTrailingStep() != null && request.pnlTrailingStep() > 0
+                                ? " (trailing by Rs" + request.pnlTrailingStep() + " once reached)" : " (hard stop)")
+                : "target " + request.targetPoints() + " pts";
         log(run, "STARTED", "Armed " + request.mode() + " run for " + request.indexName() + ", quantity "
-                + request.quantity() + " lots, target " + request.targetPoints() + " pts, max " + request.maxTrades()
+                + request.quantity() + " lots, " + targetDesc + ", max " + request.maxTrades()
                 + " trade(s), entry window " + request.entryWindowStart() + "-" + request.entryCutoff() + ".");
         return getState();
     }
@@ -519,35 +542,47 @@ public class VwapBreakoutStrategyEngine {
     }
 
     /**
-     * A target hit ends the session for the day (same philosophy as Breakout925). A
-     * VWAP-cross SL exit instead frees up the strategy to keep going: if the other side
-     * is already showing its own VWAP breakout right now, flip into it immediately
-     * (a reversal); otherwise this side re-arms and goes back to WATCHING so either side
-     * can take the next signal - all the way up to the configured max trades.
+     * POINTS mode (default): a target hit ends the session for the day, same philosophy
+     * as Breakout925. A VWAP-cross SL exit instead frees up the strategy to keep going:
+     * if the other side is already showing its own VWAP breakout right now, flip into
+     * it immediately (a reversal); otherwise this side re-arms and goes back to WATCHING
+     * so either side can take the next signal - all the way up to the configured max
+     * trades.
+     *
+     * PNL mode: individual trades still resolve exactly the same way (points target,
+     * VWAP-cross SL) - what changes is that a target hit no longer stops the session by
+     * itself. Every exit (win or loss) adds to a running cumulative realized P&L for the
+     * whole session, and the session only stops when that cumulative figure hits the
+     * configured rupee target (or its trailing stop, if one's set) - see
+     * checkPnlGovernor() - or max trades/cutoff is reached, same as before.
      */
     private synchronized void handleExit(VwapBreakoutRun run, String side, String reason, double exitPrice) {
         String legStatus = "CE".equals(side) ? run.getCeLegStatus() : run.getPeLegStatus();
         if (!"ENTRY_CONFIRMED".equals(legStatus) && !"ENTRY_PLACED".equals(legStatus)) return;
 
-        closeLeg(run, side, reason, exitPrice);
+        double realizedPnl = closeLeg(run, side, reason, exitPrice);
 
         String otherSide = "CE".equals(side) ? "PE" : "CE";
         String otherLegStatus = "CE".equals(otherSide) ? run.getCeLegStatus() : run.getPeLegStatus();
 
-        if ("Target hit".equals(reason)) {
+        if ("PNL".equals(run.getTargetType())) {
+            run.setCumulativeRealizedPnl(run.getCumulativeRealizedPnl() + realizedPnl);
+            boolean pnlGovernorStop = checkPnlGovernor(run);
+            if (pnlGovernorStop || run.getEntryCount() >= run.getMaxTrades()) {
+                String stopMsg = pnlGovernorStop
+                        ? "P&L governor stopped the session (cumulative Rs" + String.format("%.2f", run.getCumulativeRealizedPnl()) + ")."
+                        : "all " + run.getMaxTrades() + " configured trade(s) used, strategy stops here.";
+                if ("WATCHING".equals(otherLegStatus)) markSkipped(run, otherSide, stopMsg);
+            } else {
+                continueOrReverse(run, side, otherSide, otherLegStatus);
+            }
+        } else if ("Target hit".equals(reason)) {
             if ("WATCHING".equals(otherLegStatus)) markSkipped(run, otherSide, side + " already hit target, strategy stops here.");
         } else { // VWAP cross (SL)
             if (run.getEntryCount() >= run.getMaxTrades()) {
                 if ("WATCHING".equals(otherLegStatus)) markSkipped(run, otherSide, "all " + run.getMaxTrades() + " configured trade(s) used, strategy stops here.");
             } else {
-                Double otherClose = lastKnownClose.get(otherSide);
-                Double otherVwap = lastKnownVwap.get(otherSide);
-                boolean otherToken = ("CE".equals(otherSide) ? run.getCeToken() : run.getPeToken()) != null;
-                if (otherToken && "WATCHING".equals(otherLegStatus) && otherClose != null && otherVwap != null && otherClose > otherVwap) {
-                    enterLeg(run, otherSide, otherClose, otherVwap, true);
-                } else {
-                    rearmLeg(run, side);
-                }
+                continueOrReverse(run, side, otherSide, otherLegStatus);
             }
         }
 
@@ -558,6 +593,45 @@ public class VwapBreakoutStrategyEngine {
         runRepository.save(run);
 
         maybeFinishRun(run);
+    }
+
+    /** Shared "keep the session going" step: flip into the other side if it's already
+     *  breaking out, otherwise re-arm this side to watch for the next signal. */
+    private void continueOrReverse(VwapBreakoutRun run, String side, String otherSide, String otherLegStatus) {
+        Double otherClose = lastKnownClose.get(otherSide);
+        Double otherVwap = lastKnownVwap.get(otherSide);
+        boolean otherToken = ("CE".equals(otherSide) ? run.getCeToken() : run.getPeToken()) != null;
+        if (otherToken && "WATCHING".equals(otherLegStatus) && otherClose != null && otherVwap != null && otherClose > otherVwap) {
+            enterLeg(run, otherSide, otherClose, otherVwap, true);
+        } else {
+            rearmLeg(run, side);
+        }
+    }
+
+    /**
+     * PNL mode only. Returns true if the session should stop now because of the
+     * cumulative-P&L target/trailing rule. No trailing step configured -> hard stop the
+     * instant the target is reached. Trailing step configured -> the target just arms
+     * the trailing stop (session keeps going); once armed, stops only if cumulative P&L
+     * retraces that many rupees from its peak-so-far.
+     */
+    private boolean checkPnlGovernor(VwapBreakoutRun run) {
+        if (run.getPnlTarget() == null) return false;
+        if (run.getPnlTrailingStep() == null || run.getPnlTrailingStep() <= 0) {
+            return run.getCumulativeRealizedPnl() >= run.getPnlTarget();
+        }
+        if (!run.isPnlTrailingActive()) {
+            if (run.getCumulativeRealizedPnl() >= run.getPnlTarget()) {
+                run.setPnlTrailingActive(true);
+                run.setPeakCumulativePnl(run.getCumulativeRealizedPnl());
+                log(run, "PNL_TRAILING_ACTIVE", "Cumulative P&L reached Rs" + String.format("%.2f", run.getCumulativeRealizedPnl())
+                        + " - trailing stop now active, will lock in if it retraces Rs" + run.getPnlTrailingStep() + " from the peak.");
+            }
+            return false;
+        }
+        double peak = Math.max(run.getPeakCumulativePnl(), run.getCumulativeRealizedPnl());
+        run.setPeakCumulativePnl(peak);
+        return run.getCumulativeRealizedPnl() <= peak - run.getPnlTrailingStep();
     }
 
     private void markSkipped(VwapBreakoutRun run, String side, String reasonMsg) {
@@ -585,7 +659,7 @@ public class VwapBreakoutStrategyEngine {
         maxima.remove(side);
     }
 
-    private void closeLeg(VwapBreakoutRun run, String side, String reason, double exitPrice) {
+    private double closeLeg(VwapBreakoutRun run, String side, String reason, double exitPrice) {
         Long tradeId = "CE".equals(side) ? run.getCeTradeId() : run.getPeTradeId();
         double[] max = maxima.getOrDefault(side, new double[]{0, 0});
         Double entryPriceObj = "CE".equals(side) ? run.getCeEntryPrice() : run.getPeEntryPrice();
@@ -608,6 +682,7 @@ public class VwapBreakoutStrategyEngine {
 
         if ("CE".equals(side)) run.setCeLegStatus("CLOSED"); else run.setPeLegStatus("CLOSED");
         log(run, "EXIT", side + " exited: " + reason + " at " + exitPrice + " (realized " + String.format("%.2f", realizedPnl) + ").");
+        return realizedPnl;
     }
 
     private void maybeFinishRun(VwapBreakoutRun run) {
@@ -718,6 +793,12 @@ public class VwapBreakoutStrategyEngine {
         state.put("exchSeg", run.getExchSeg());
         state.put("quantity", run.getQuantity());
         state.put("targetPoints", run.getTargetPoints());
+        state.put("targetType", run.getTargetType());
+        state.put("pnlTarget", run.getPnlTarget());
+        state.put("pnlTrailingStep", run.getPnlTrailingStep());
+        state.put("cumulativeRealizedPnl", run.getCumulativeRealizedPnl());
+        state.put("pnlTrailingActive", run.isPnlTrailingActive());
+        state.put("peakCumulativePnl", run.getPeakCumulativePnl());
         state.put("maxTrades", run.getMaxTrades());
         state.put("entryCount", run.getEntryCount());
         state.put("entryWindowStart", run.getEntryWindowStart());

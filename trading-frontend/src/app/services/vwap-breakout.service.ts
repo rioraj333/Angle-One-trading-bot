@@ -13,6 +13,12 @@ export interface VwapBreakoutStartRequest {
   exchSeg: string;
   quantity: number;
   targetPoints: number;
+  /** POINTS (default) or PNL - see targetType on VwapBreakoutState for what each means. */
+  targetType: 'POINTS' | 'PNL';
+  /** Cumulative-session P&L target in rupees - only used when targetType is PNL. */
+  pnlTarget?: number | null;
+  /** Optional trailing step in rupees once pnlTarget is first reached - omit/null for a hard stop. */
+  pnlTrailingStep?: number | null;
   maxTrades: number;
   entryWindowStart: string;
   entryCutoff: string;
@@ -47,6 +53,12 @@ export interface VwapBreakoutState {
   exchSeg?: string;
   quantity?: number;
   targetPoints?: number;
+  targetType?: 'POINTS' | 'PNL';
+  pnlTarget?: number | null;
+  pnlTrailingStep?: number | null;
+  cumulativeRealizedPnl?: number;
+  pnlTrailingActive?: boolean;
+  peakCumulativePnl?: number | null;
   maxTrades?: number;
   entryCount?: number;
   entryWindowStart?: string;
