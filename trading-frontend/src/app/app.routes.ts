@@ -5,6 +5,7 @@ import { StrategyListComponent } from './strategies/strategy-list/strategy-list'
 import { BreakoutComponent } from './strategies/breakout/breakout';
 import { BreakoutHistoryComponent } from './strategies/breakout-history/breakout-history';
 import { Breakout925Component } from './strategies/breakout925/breakout925';
+import { VwapBreakoutComponent } from './strategies/vwap-breakout/vwap-breakout';
 import { authGuard } from './guards/auth.guard';
 import { canDeactivateGuard } from './guards/can-deactivate.guard';
 
@@ -18,6 +19,12 @@ export const routes: Routes = [
   {
     path: 'strategies/breakout925',
     component: Breakout925Component,
+    canActivate: [authGuard],
+    canDeactivate: [canDeactivateGuard],
+  },
+  {
+    path: 'strategies/vwap-breakout',
+    component: VwapBreakoutComponent,
     canActivate: [authGuard],
     canDeactivate: [canDeactivateGuard],
   },

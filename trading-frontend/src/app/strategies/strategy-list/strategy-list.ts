@@ -27,6 +27,11 @@ export class StrategyListComponent {
       route: '/strategies/breakout925',
     },
     {
+      name: 'VWAP Breakout',
+      description: 'NIFTY CE/PE near ₹200 premium. Candle closes above VWAP = entry, closes below = exit (can reverse), 15pt target.',
+      route: '/strategies/vwap-breakout',
+    },
+    {
       name: 'Coming soon',
       description: 'Next strategy slot — not built yet.',
       route: null,
