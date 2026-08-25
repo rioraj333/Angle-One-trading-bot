@@ -1,0 +1,368 @@
+<div class="breakout-page">
+  <header class="page-header">
+    <a routerLink="/strategies" class="back-link">&larr; Strategies</a>
+    <h1>VWAP Breakout Strategy</h1>
+  </header>
+
+  <div class="status-bar">
+    @if (running()) {
+      <span class="mode-pill ticking">{{ runState()?.status }}</span>
+      @if (deployedPreset(); as dp) {
+        <span class="mode-pill">{{ dp.name }}</span>
+      }
+      <span class="mode-pill">Trade {{ runState()?.entryCount ?? 0 }} of {{ runState()?.maxTrades ?? maxTrades }}</span>
+    }
+    @if (!running()) {
+      <button class="btn-toggle-tick" (click)="startStrategy()">Start</button>
+    } @else {
+      <button class="btn-toggle-tick active" (click)="stopStrategy()">Stop</button>
+    }
+  </div>
+
+  @if (runState()?.events?.length) {
+    <div class="activity-log">
+      <div class="side-title">Activity Log</div>
+      <div class="activity-log-list">
+        @for (e of runState()!.events!; track $index) {
+          <div class="activity-log-row">
+            <span class="activity-log-time">{{ fmtEventTime(e.time) }}</span>
+            <span class="activity-log-msg">{{ e.message }}</span>
+          </div>
+        }
+      </div>
+    </div>
+  }
+
+  <div class="watch-layout">
+
+    <div class="settings-card">
+      <div class="settings-header" (click)="toggleSettings()">
+        <div>
+          <h2>Settings</h2>
+          <p class="settings-sub">Quantity, target, entry window, mode &amp; saved presets.</p>
+        </div>
+        <button class="btn-collapse" [class.open]="settingsOpen()" (click)="toggleSettings(); $event.stopPropagation()">
+          {{ settingsOpen() ? '▲ Hide' : '▼ Show' }}
+        </button>
+      </div>
+
+      @if (settingsOpen()) {
+        @if (presets().length > 0) {
+          <div class="form-row">
+            <label for="preset">Saved presets</label>
+            <select id="preset" class="select-input" (change)="applyPreset($any($event.target).value)">
+              <option value="">Custom...</option>
+              @for (p of presets(); track p.id) {
+                <option [value]="p.id">{{ p.name }} ({{ p.quantity }} lot, {{ p.mode }})</option>
+              }
+            </select>
+          </div>
+        }
+
+        <div class="settings-grid">
+          <div class="form-row">
+            <label for="qty">Quantity (lots)</label>
+            <select id="qty" [(ngModel)]="quantity" class="select-input" [disabled]="running()">
+              @for (q of quantityOptions; track q) {
+                <option [value]="q">{{ q }}</option>
+              }
+            </select>
+          </div>
+
+          <div class="form-row">
+            <label for="target">Target (points)</label>
+            <input id="target" type="number" class="select-input" [(ngModel)]="targetPoints" min="1" [disabled]="running()" />
+          </div>
+
+          <div class="form-row">
+            <label for="maxTrades">Max trades/session</label>
+            <input id="maxTrades" type="number" class="select-input" [(ngModel)]="maxTrades" min="1" [disabled]="running()" />
+          </div>
+
+          <div class="form-row">
+            <label>Mode</label>
+            <div class="mode-toggle">
+              <button [class.active]="mode === 'PAPER'" (click)="mode = 'PAPER'" [disabled]="running()">Paper</button>
+              <button [class.active]="mode === 'LIVE'" (click)="mode = 'LIVE'" [disabled]="running()">Live</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-grid">
+          <div class="form-row">
+            <label for="entryStart">Entry window start</label>
+            <input id="entryStart" type="time" class="select-input" [(ngModel)]="entryWindowStart" [disabled]="running()" />
+          </div>
+
+          <div class="form-row">
+            <label for="entryCutoff">Entry cutoff (no new entries after)</label>
+            <input id="entryCutoff" type="time" class="select-input" [(ngModel)]="entryCutoff" [disabled]="running()" />
+          </div>
+
+          <div class="form-row">
+            <label>Exit rule</label>
+            <div class="mode-toggle">
+              <button [class.active]="exitMode === 'VWAP_CROSS'" (click)="exitMode = 'VWAP_CROSS'" [disabled]="running()">VWAP cross</button>
+              <button [class.active]="exitMode === 'TRAILING_SL'" (click)="exitMode = 'TRAILING_SL'" [disabled]="running()">Trailing SL</button>
+            </div>
+            @if (exitMode === 'TRAILING_SL') {
+              <p class="field-hint">Not available yet - pick VWAP cross for now.</p>
+            }
+          </div>
+        </div>
+
+        <div class="settings-divider"></div>
+
+        <div class="form-row preset-save-row">
+          <input type="text" [(ngModel)]="newPresetName" placeholder="Preset name" class="select-input" />
+          <button class="btn-secondary" (click)="saveCurrentAsPreset()" [disabled]="!newPresetName.trim()">Save preset</button>
+        </div>
+
+        @if (mode === 'LIVE') {
+          <div class="live-warning">
+            Live mode is ACTIVE — entries and exits (target or VWAP-cross) are real MARKET orders. There are no
+            resting broker orders here since VWAP moves every candle; every exit is placed the instant it's detected.
+          </div>
+        }
+      }
+    </div>
+
+    <div class="stat-row">
+      <div class="stat-box">
+        <span class="stat-label">NIFTY spot</span>
+        <div class="stat-value">{{ fmt(indexLtp()) }}</div>
+      </div>
+    </div>
+
+    @if (!running()) {
+      <div class="premium-search-row">
+        <span class="stat-label">Select Premium</span>
+        <input type="number" class="select-input premium-input" [(ngModel)]="premiumFrom" placeholder="From" />
+        <span class="range-to-label">to</span>
+        <input type="number" class="select-input premium-input" [(ngModel)]="premiumTo" placeholder="To" />
+        <button class="btn-search-premium" (click)="searchPremium()" [disabled]="premiumSearching()">
+          @if (premiumSearching()) { Searching... } @else { Search Premium }
+        </button>
+      </div>
+
+      @if (premiumSearchError()) {
+        <div class="error-msg">{{ premiumSearchError() }}</div>
+      }
+
+      @if (ceMatches().length > 0 || peMatches().length > 0) {
+        <p class="searched-range">Showing NIFTY strikes with premium {{ fmt(searchedFrom()) }} – {{ fmt(searchedTo()) }}</p>
+        <div class="premium-results-row">
+          <div class="premium-result-box">
+            <div class="side-title">CE</div>
+            @if (ceMatches().length === 0) {
+              <p class="empty-msg">No CE strikes in range.</p>
+            } @else {
+              <div class="premium-result-row header"><span>Strike Price</span><strong>Premium</strong></div>
+              @for (m of ceMatches(); track m.strike) {
+                <div class="premium-result-row selectable" [class.selected]="selectedCe()?.strike === m.strike" (click)="selectCe(m)">
+                  <span>{{ m.strike }}</span><strong>{{ fmt(m.premium) }}</strong>
+                </div>
+              }
+            }
+          </div>
+          <div class="premium-result-box">
+            <div class="side-title">PE</div>
+            @if (peMatches().length === 0) {
+              <p class="empty-msg">No PE strikes in range.</p>
+            } @else {
+              <div class="premium-result-row header"><span>Strike Price</span><strong>Premium</strong></div>
+              @for (m of peMatches(); track m.strike) {
+                <div class="premium-result-row selectable" [class.selected]="selectedPe()?.strike === m.strike" (click)="selectPe(m)">
+                  <span>{{ m.strike }}</span><strong>{{ fmt(m.premium) }}</strong>
+                </div>
+              }
+            }
+          </div>
+        </div>
+      }
+    }
+
+    @if (running() && (ceLeg() || peLeg())) {
+      <div class="stat-row">
+        @if (ceLeg(); as ce) {
+          <div class="stat-box">
+            <span class="stat-label">CE {{ ce.strike }} tick price</span>
+            <div class="stat-value">{{ fmt(ce.ltp) }}</div>
+            <div class="candle-row"><span>VWAP</span><strong>{{ fmt(ce.vwap) }}</strong></div>
+          </div>
+        }
+        @if (peLeg(); as pe) {
+          <div class="stat-box">
+            <span class="stat-label">PE {{ pe.strike }} tick price</span>
+            <div class="stat-value">{{ fmt(pe.ltp) }}</div>
+            <div class="candle-row"><span>VWAP</span><strong>{{ fmt(pe.vwap) }}</strong></div>
+          </div>
+        }
+      </div>
+    }
+
+    @if (exitInfo(); as x) {
+      <div class="exit-msg" [class.target]="x.reason === 'Target hit'" [class.stoploss]="x.reason.includes('VWAP')">
+        {{ x.side }} — {{ x.reason }} at {{ fmt(x.price) }}.
+      </div>
+    }
+
+    @if (latestOrderMsg()) {
+      <div class="live-order-msg" [class.fail]="latestOrderMsg().includes('FAILED')">{{ latestOrderMsg() }}</div>
+    }
+
+    @if ((ceLeg() && ceLeg()!.legStatus !== 'WATCHING' && ceLeg()!.legStatus !== 'NONE' && ceLeg()!.legStatus !== 'SKIPPED') || (peLeg() && peLeg()!.legStatus !== 'WATCHING' && peLeg()!.legStatus !== 'NONE' && peLeg()!.legStatus !== 'SKIPPED')) {
+      <div class="position-card">
+        @if (ceLeg(); as ce) {
+          @if (ce.legStatus !== 'WATCHING' && ce.legStatus !== 'NONE' && ce.legStatus !== 'SKIPPED') {
+            <div class="position-block">
+              <div class="side-title">CE Position — {{ legStatusLabel(ce.legStatus) }}</div>
+              <div class="position-grid">
+                <div><span>Entry</span><strong>{{ fmt(ce.entryPrice) }}</strong></div>
+                <div><span>Target</span><strong>{{ fmt(ce.target) }}</strong></div>
+                <div><span>LTP</span><strong>{{ fmt(ce.ltp) }}</strong></div>
+                <div>
+                  <span>P&amp;L</span>
+                  <strong [class.up]="(ce.unrealizedPnl ?? 0) >= 0" [class.down]="(ce.unrealizedPnl ?? 0) < 0">
+                    {{ fmtPnl(ce.unrealizedPnl) }}
+                  </strong>
+                </div>
+                <div class="row-break"><span>VWAP (live)</span><strong>{{ fmt(ce.vwap) }}</strong></div>
+                <div><span>VWAP at entry</span><strong>{{ fmt(ce.vwapAtEntry) }}</strong></div>
+              </div>
+            </div>
+          }
+        }
+        @if (peLeg(); as pe) {
+          @if (pe.legStatus !== 'WATCHING' && pe.legStatus !== 'NONE' && pe.legStatus !== 'SKIPPED') {
+            <div class="position-block">
+              <div class="side-title">PE Position — {{ legStatusLabel(pe.legStatus) }}</div>
+              <div class="position-grid">
+                <div><span>Entry</span><strong>{{ fmt(pe.entryPrice) }}</strong></div>
+                <div><span>Target</span><strong>{{ fmt(pe.target) }}</strong></div>
+                <div><span>LTP</span><strong>{{ fmt(pe.ltp) }}</strong></div>
+                <div>
+                  <span>P&amp;L</span>
+                  <strong [class.up]="(pe.unrealizedPnl ?? 0) >= 0" [class.down]="(pe.unrealizedPnl ?? 0) < 0">
+                    {{ fmtPnl(pe.unrealizedPnl) }}
+                  </strong>
+                </div>
+                <div class="row-break"><span>VWAP (live)</span><strong>{{ fmt(pe.vwap) }}</strong></div>
+                <div><span>VWAP at entry</span><strong>{{ fmt(pe.vwapAtEntry) }}</strong></div>
+              </div>
+            </div>
+          }
+        }
+      </div>
+    }
+
+    @if (errorMsg()) {
+      <div class="error-msg">{{ errorMsg() }}</div>
+    }
+
+    <div class="settings-card history-card">
+      <div class="settings-header" (click)="toggleHistory()">
+        <div>
+          <h2>Trade History</h2>
+          <p class="settings-sub">Past paper &amp; live trades for this strategy.</p>
+        </div>
+        <button class="btn-collapse" [class.open]="historyOpen()" (click)="toggleHistory(); $event.stopPropagation()">
+          {{ historyOpen() ? '▲ Hide' : '▼ Show' }}
+        </button>
+      </div>
+
+      @if (historyOpen()) {
+        <div class="mode-toggle history-mode-toggle">
+          <button [class.active]="historyMode() === 'PAPER'" (click)="setHistoryMode('PAPER')">Paper</button>
+          <button [class.active]="historyMode() === 'LIVE'" (click)="setHistoryMode('LIVE')">Live</button>
+        </div>
+
+        @if (historyLoading()) {
+          <p class="empty-msg">Loading history...</p>
+        } @else if (tradeHistory().length === 0) {
+          <p class="empty-msg">No {{ historyMode() === 'PAPER' ? 'paper' : 'live' }} trades recorded yet.</p>
+        } @else {
+          <div class="history-table-wrap">
+            <table class="history-table">
+              <thead>
+                <tr>
+                  <th>Entry Time</th><th>Mode</th><th>Side</th><th>Strike</th><th>Reversal</th>
+                  <th>Entry</th><th>Target</th><th>VWAP@Entry</th><th>Exit</th><th>Reason</th>
+                  <th>Max Profit</th><th>Max Drawdown</th><th>Realized P&amp;L</th><th>Status</th><th></th><th></th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (t of tradeHistory(); track t.id) {
+                  <tr>
+                    <td>{{ t.entryTime | date:'d MMM, HH:mm' }}</td>
+                    <td>{{ t.mode }}</td>
+                    <td>{{ t.side }}</td>
+                    <td>{{ t.strike }}</td>
+                    <td>{{ t.reversal ? 'Yes' : '—' }}</td>
+                    <td>{{ fmt(t.entryPrice) }}</td>
+                    <td>{{ fmt(t.target) }}</td>
+                    <td>{{ t.vwapAtEntry != null ? fmt(t.vwapAtEntry) : '—' }}</td>
+                    <td>{{ t.exitPrice != null ? fmt(t.exitPrice) : '—' }}</td>
+                    <td>{{ t.exitReason || '—' }}</td>
+                    <td [class.up]="(t.maxProfit ?? 0) >= 0" [class.down]="(t.maxProfit ?? 0) < 0">{{ t.maxProfit != null ? fmtPnl(t.maxProfit) : '—' }}</td>
+                    <td [class.up]="(t.maxDrawdown ?? 0) >= 0" [class.down]="(t.maxDrawdown ?? 0) < 0">{{ t.maxDrawdown != null ? fmtPnl(t.maxDrawdown) : '—' }}</td>
+                    <td [class.up]="(t.realizedPnl ?? 0) >= 0" [class.down]="(t.realizedPnl ?? 0) < 0">{{ t.realizedPnl != null ? fmtPnl(t.realizedPnl) : '—' }}</td>
+                    <td><span class="history-status" [class.open-status]="t.status === 'OPEN'">{{ t.status }}</span></td>
+                    <td>
+                      <button class="btn-view-row" (click)="viewTradeLog(t)" title="View log">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                          <circle cx="12" cy="12" r="3"/>
+                        </svg>
+                      </button>
+                    </td>
+                    <td>
+                      <button class="btn-delete-row" (click)="deleteTrade(t.id)" title="Delete">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                          <polyline points="3 6 5 6 21 6"/>
+                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                          <line x1="10" y1="11" x2="10" y2="17"/>
+                          <line x1="14" y1="11" x2="14" y2="17"/>
+                        </svg>
+                      </button>
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        }
+      }
+    </div>
+
+  </div>
+
+  @if (viewingTradeId() !== null) {
+    <div class="overlay" (click)="closeTradeLog()">
+      <div class="log-modal" (click)="$event.stopPropagation()">
+        <div class="log-modal-header">
+          <h3>Trade Log</h3>
+          <button class="op-close" (click)="closeTradeLog()">&#10005;</button>
+        </div>
+        <div class="log-modal-body">
+          @if (viewingEventsLoading()) {
+            <p class="empty-msg">Loading log...</p>
+          } @else if (viewingEventsError()) {
+            <p class="empty-msg">{{ viewingEventsError() }}</p>
+          } @else if (viewingEvents().length === 0) {
+            <p class="empty-msg">No log entries found.</p>
+          } @else {
+            <div class="activity-log-list modal-log-list">
+              @for (e of viewingEvents(); track $index) {
+                <div class="activity-log-row">
+                  <span class="activity-log-time">{{ fmtEventTime(e.time) }}</span>
+                  <span class="activity-log-msg">{{ e.message }}</span>
+                </div>
+              }
+            </div>
+          }
+        </div>
+      </div>
+    </div>
+  }
+</div>
