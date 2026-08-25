@@ -75,10 +75,12 @@
             </select>
           </div>
 
-          <div class="form-row">
-            <label for="target">{{ targetType === 'PNL' ? 'Per-trade target (points)' : 'Target (points)' }}</label>
-            <input id="target" type="number" class="select-input" [(ngModel)]="targetPoints" min="1" [disabled]="running()" />
-          </div>
+          @if (targetType === 'POINTS') {
+            <div class="form-row">
+              <label for="target">Target (points)</label>
+              <input id="target" type="number" class="select-input" [(ngModel)]="targetPoints" min="1" [disabled]="running()" />
+            </div>
+          }
 
           <div class="form-row">
             <label for="maxTrades">Max trades/session</label>
