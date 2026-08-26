@@ -321,37 +321,47 @@ public class VwapBreakoutStrategyEngine {
      *  polled 1-minute candles - shared by the run-bound poller and the standalone preview
      *  endpoint (getVwapPreview()) used before a strategy is even started. */
     private VwapSnapshot fetchVwapSnapshot(String exchSeg, String token) {
-        String today = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
-        Map<String, Object> params = new HashMap<>();
-        params.put("exchange", exchSeg);
-        params.put("symboltoken", token);
-        params.put("interval", "ONE_MINUTE");
-        params.put("fromdate", today + " 09:15");
-        params.put("todate", LocalDateTime.now().format(CANDLE_TIME_FMT));
+        try {
+            String today = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+            Map<String, Object> params = new HashMap<>();
+            params.put("exchange", exchSeg);
+            params.put("symboltoken", token);
+            params.put("interval", "ONE_MINUTE");
+            params.put("fromdate", today + " 09:15");
+            params.put("todate", LocalDateTime.now().format(CANDLE_TIME_FMT));
 
-        Map<String, Object> resp = marketService.getCandleData(params);
-        if (resp == null || !Boolean.TRUE.equals(resp.get("status"))) return null;
-        Object dataObj = resp.get("data");
-        if (!(dataObj instanceof List<?> rows) || rows.isEmpty()) return null;
+            Map<String, Object> resp = marketService.getCandleData(params);
+            if (resp == null || !Boolean.TRUE.equals(resp.get("status"))) return null;
+            Object dataObj = resp.get("data");
+            if (!(dataObj instanceof List<?> rows) || rows.isEmpty()) return null;
 
-        double cumPV = 0;
-        double cumVol = 0;
-        String lastTimestamp = null;
-        double lastClose = 0;
-        for (Object rowObj : rows) {
-            if (!(rowObj instanceof List<?> candle) || candle.size() < 6) continue;
-            double high = Double.parseDouble(String.valueOf(candle.get(2)));
-            double low = Double.parseDouble(String.valueOf(candle.get(3)));
-            double close = Double.parseDouble(String.valueOf(candle.get(4)));
-            double volume = Double.parseDouble(String.valueOf(candle.get(5)));
-            double typicalPrice = (high + low + close) / 3.0;
-            cumPV += typicalPrice * volume;
-            cumVol += volume;
-            lastTimestamp = String.valueOf(candle.get(0));
-            lastClose = close;
+            double cumPV = 0;
+            double cumVol = 0;
+            String lastTimestamp = null;
+            double lastClose = 0;
+            for (Object rowObj : rows) {
+                if (!(rowObj instanceof List<?> candle) || candle.size() < 6) continue;
+                double high = Double.parseDouble(String.valueOf(candle.get(2)));
+                double low = Double.parseDouble(String.valueOf(candle.get(3)));
+                double close = Double.parseDouble(String.valueOf(candle.get(4)));
+                double volume = Double.parseDouble(String.valueOf(candle.get(5)));
+                double typicalPrice = (high + low + close) / 3.0;
+                cumPV += typicalPrice * volume;
+                cumVol += volume;
+                lastTimestamp = String.valueOf(candle.get(0));
+                lastClose = close;
+            }
+            if (lastTimestamp == null || cumVol <= 0) return null;
+            return new VwapSnapshot(cumPV / cumVol, lastClose, lastTimestamp);
+        } catch (Exception e) {
+            // A broker-side error (e.g. rate limit 403) throws rather than returning a
+            // normal response - without this the exception would bubble up as a raw 500
+            // to whichever caller is currently on the stack (pollCandles() is forgiven by
+            // the @Scheduled error handler, but getVwapPreview() is a plain HTTP endpoint
+            // with nothing to catch it, which is exactly what surfaced as a raw 500 -
+            // "Failed to fetch VWAP" - in the frontend during testing).
+            return null;
         }
-        if (lastTimestamp == null || cumVol <= 0) return null;
-        return new VwapSnapshot(cumPV / cumVol, lastClose, lastTimestamp);
     }
 
     private void pollCandles(VwapBreakoutRun run, String side) {
@@ -384,7 +394,7 @@ public class VwapBreakoutStrategyEngine {
         VwapSnapshot snap = fetchVwapSnapshot(exchSeg, token);
         if (snap == null) {
             result.put("status", false);
-            result.put("message", "No candle/volume data available yet today.");
+            result.put("message", "No data yet - either no candles today, or a temporary broker limit. Will retry automatically.");
             return result;
         }
         result.put("status", true);

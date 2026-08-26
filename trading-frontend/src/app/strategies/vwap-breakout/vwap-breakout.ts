@@ -175,8 +175,10 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
 
     // Keeps the preview live while you're still choosing strikes (before Start exists to
     // compute VWAP itself) - the immediate fetch on selection (see selectCe/selectPe)
-    // covers the first value, this just keeps it fresh.
-    this.vwapPreviewSub = interval(5000).subscribe(() => {
+    // covers the first value, this just keeps it fresh. 20s matches the same cadence the
+    // running engine's own candle poll already uses safely (CANDLE_POLL_RETRY_MS) - 5s was
+    // too aggressive and got rate-limited by Angel One's historical-candle endpoint.
+    this.vwapPreviewSub = interval(20_000).subscribe(() => {
       if (this.running()) return;
       const ce = this.selectedCe();
       if (ce) this.refreshVwapPreview('CE', ce.token);
