@@ -464,6 +464,43 @@
               }
             </div>
           }
+
+          <h2 class="section-title vwap-presets-title">VWAP Breakout presets</h2>
+
+          @if (vwapPresetsLoading()) {
+            <p class="empty-msg">Loading presets...</p>
+          } @else if (vwapPresets().length === 0) {
+            <p class="empty-msg">No saved presets yet — save one from the VWAP Breakout page's Settings panel.</p>
+          } @else {
+            <div class="preset-card-grid">
+              @for (p of vwapPresets(); track p.id) {
+                <div class="preset-card">
+                  <div class="preset-card-header">
+                    <h3>{{ p.name }}</h3>
+                    <div class="preset-tags">
+                      <span class="status-badge" [class.status-complete]="p.mode === 'PAPER'" [class.status-rejected]="p.mode === 'LIVE'">{{ p.mode }}</span>
+                      <span class="selection-mode-tag">{{ p.targetType }}</span>
+                    </div>
+                  </div>
+                  <div class="preset-card-body">
+                    <span>{{ p.indexName }} &middot; premium {{ p.premiumFrom }}&ndash;{{ p.premiumTo }}</span>
+                    <span>{{ p.entryWindowStart }}&ndash;{{ p.entryCutoff }} &middot; {{ p.quantity }} lot &middot; max {{ p.maxTrades }} trade(s)</span>
+                    <span>
+                      @if (p.targetType === 'PNL') {
+                        target &#8377;{{ p.pnlTarget }}{{ p.pnlTrailingStep ? ' (trail ' + p.pnlTrailingStep + ')' : '' }}
+                      } @else {
+                        target {{ p.targetPoints }}pts
+                      }
+                    </span>
+                  </div>
+                  <div class="preset-card-actions">
+                    <button class="btn-secondary" (click)="deployVwapPreset(p)">Deploy</button>
+                    <button class="btn-secondary" (click)="deleteVwapPreset(p.id)">Delete</button>
+                  </div>
+                </div>
+              }
+            </div>
+          }
         </div>
       }
 

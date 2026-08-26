@@ -10,6 +10,7 @@ import { TradingService } from '../services/trading.service';
 import { getMarketStatus, MarketStatus } from '../utils/market-hours';
 import { Breakout925DeployStatus, Breakout925Preset, Breakout925PresetService, SaveBreakout925PresetRequest } from '../services/breakout925-preset.service';
 import { Breakout925Service } from '../services/breakout925.service';
+import { VwapBreakoutPreset, VwapBreakoutPresetService } from '../services/vwap-breakout-preset.service';
 
 interface PresetEditForm {
   name: string;
@@ -120,6 +121,8 @@ export class DashboardComponent implements OnInit, OnDestroy {
 
   strategyPresets = signal<Breakout925Preset[]>([]);
   presetsLoading = signal(false);
+  vwapPresets = signal<VwapBreakoutPreset[]>([]);
+  vwapPresetsLoading = signal(false);
   deployingId = signal<number | null>(null);
   deployResult = signal<Record<number, { status: 'ok' | 'error'; message: string }>>({});
   pendingDeploy = signal<Breakout925DeployStatus | null>(null);
@@ -149,7 +152,8 @@ export class DashboardComponent implements OnInit, OnDestroy {
     private authService: AuthService,
     private tradingService: TradingService,
     private breakout925PresetService: Breakout925PresetService,
-    private breakout925Service: Breakout925Service
+    private breakout925Service: Breakout925Service,
+    private vwapBreakoutPresetService: VwapBreakoutPresetService
   ) {}
 
   ngOnInit(): void {
@@ -296,6 +300,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
     this.activeSection.set(section);
     if (section === 'strategies') {
       if (this.strategyPresets().length === 0) this.loadPresets();
+      if (this.vwapPresets().length === 0) this.loadVwapPresets();
       this.checkActiveRun();
     }
     this.sidebarOpen.set(false);
@@ -348,6 +353,32 @@ export class DashboardComponent implements OnInit, OnDestroy {
           this.startDeployStatusPolling();
         }
       },
+      error: () => {},
+    });
+  }
+
+  loadVwapPresets(): void {
+    this.vwapPresetsLoading.set(true);
+    this.vwapBreakoutPresetService.list().subscribe({
+      next: (list) => {
+        this.vwapPresetsLoading.set(false);
+        this.vwapPresets.set(list);
+      },
+      error: () => {
+        this.vwapPresetsLoading.set(false);
+      },
+    });
+  }
+
+  /** Always manual - VWAP Breakout has no AUTO scheduled-deploy mode, so this just opens
+   *  the page with the preset pre-filled, same as a MANUAL Breakout925 preset does. */
+  deployVwapPreset(preset: VwapBreakoutPreset): void {
+    this.router.navigate(['/strategies/vwap-breakout'], { queryParams: { presetId: preset.id } });
+  }
+
+  deleteVwapPreset(id: number): void {
+    this.vwapBreakoutPresetService.delete(id).subscribe({
+      next: () => this.vwapPresets.set(this.vwapPresets().filter((p) => p.id !== id)),
       error: () => {},
     });
   }
