@@ -81,6 +81,12 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
   ceVwapPreview = signal<VwapPreview | null>(null);
   peVwapPreview = signal<VwapPreview | null>(null);
 
+  /** Live LTP for the previewed strikes - REST-polled every 1s once Preview is clicked
+   *  (same lightweight quote endpoint the NIFTY spot price already polls, not the
+   *  historical-candle endpoint VWAP uses - that one's manual-only, see previewVwap()). */
+  ceLiveLtp = signal<number | null>(null);
+  peLiveLtp = signal<number | null>(null);
+
   deployedFromPresetId: number | null = null;
 
   runState = signal<VwapBreakoutState | null>(null);
@@ -116,6 +122,7 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
 
   private indexPollSub?: Subscription;
   private stateSub?: Subscription;
+  private previewLtpSub?: Subscription;
   private platformId = inject(PLATFORM_ID);
 
   constructor(
@@ -176,6 +183,7 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
   ngOnDestroy(): void {
     this.indexPollSub?.unsubscribe();
     this.stateSub?.unsubscribe();
+    this.previewLtpSub?.unsubscribe();
   }
 
   toggleSettings(): void {
@@ -217,12 +225,14 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
     const isDeselect = this.selectedCe()?.strike === m.strike;
     this.selectedCe.set(isDeselect ? null : m);
     this.ceVwapPreview.set(null);
+    this.ceLiveLtp.set(null);
   }
 
   selectPe(m: PremiumMatch): void {
     const isDeselect = this.selectedPe()?.strike === m.strike;
     this.selectedPe.set(isDeselect ? null : m);
     this.peVwapPreview.set(null);
+    this.peLiveLtp.set(null);
   }
 
   /** Manual, on-demand fetch (Preview button) - no auto-polling, so this is the only thing
@@ -245,6 +255,33 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
       this.peVwapPreview.set(null);
       this.refreshVwapPreview('PE', pe.token);
     }
+    this.startPreviewLiveTicks();
+  }
+
+  /** Live LTP ticking for both previewed sides, restarted fresh on every Preview click so
+   *  it always tracks whatever's currently selected. Stops once a run starts - the
+   *  running-state stat boxes take over from there. */
+  private startPreviewLiveTicks(): void {
+    this.previewLtpSub?.unsubscribe();
+    this.previewLtpSub = interval(1000)
+      .pipe(startWith(0))
+      .subscribe(() => {
+        if (this.running()) return;
+        const ce = this.selectedCe();
+        if (ce) {
+          this.tradingService.getLTP(this.resultsExchSeg(), ce.symbol, ce.token).subscribe({
+            next: (r) => { if (r?.status && r.data?.ltp != null) this.ceLiveLtp.set(Number(r.data.ltp)); },
+            error: () => {},
+          });
+        }
+        const pe = this.selectedPe();
+        if (pe) {
+          this.tradingService.getLTP(this.resultsExchSeg(), pe.symbol, pe.token).subscribe({
+            next: (r) => { if (r?.status && r.data?.ltp != null) this.peLiveLtp.set(Number(r.data.ltp)); },
+            error: () => {},
+          });
+        }
+      });
   }
 
   private refreshVwapPreview(side: 'CE' | 'PE', token: string): void {

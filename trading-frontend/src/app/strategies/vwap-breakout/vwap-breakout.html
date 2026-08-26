@@ -236,8 +236,8 @@
         <div class="stat-row">
           @if (selectedCe(); as ce) {
             <div class="stat-box">
-              <span class="stat-label">CE {{ ce.strike }} premium</span>
-              <div class="stat-value">{{ fmt(ce.premium) }}</div>
+              <span class="stat-label">CE {{ ce.strike }} tick price</span>
+              <div class="stat-value">{{ fmt(ceLiveLtp() ?? ce.premium) }}</div>
               <div class="candle-row">
                 <span>VWAP</span>
                 <strong>
@@ -254,8 +254,8 @@
           }
           @if (selectedPe(); as pe) {
             <div class="stat-box">
-              <span class="stat-label">PE {{ pe.strike }} premium</span>
-              <div class="stat-value">{{ fmt(pe.premium) }}</div>
+              <span class="stat-label">PE {{ pe.strike }} tick price</span>
+              <div class="stat-value">{{ fmt(peLiveLtp() ?? pe.premium) }}</div>
               <div class="candle-row">
                 <span>VWAP</span>
                 <strong>
