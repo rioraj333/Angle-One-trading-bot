@@ -44,6 +44,13 @@ export interface VwapBreakoutLegState {
   tradeId: number | null;
 }
 
+export interface VwapPreview {
+  status: boolean;
+  vwap?: number;
+  lastClose?: number;
+  message?: string;
+}
+
 export interface VwapBreakoutState {
   active: boolean;
   id?: number;
@@ -94,5 +101,9 @@ export class VwapBreakoutService {
 
   getRunEvents(runId: number): Observable<{ time: string; type: string; message: string }[]> {
     return this.http.get<{ time: string; type: string; message: string }[]>(`${this.apiUrl}/runs/${runId}/events`);
+  }
+
+  getVwapPreview(exchSeg: string, token: string): Observable<VwapPreview> {
+    return this.http.get<VwapPreview>(`${this.apiUrl}/vwap-preview`, { params: { exchSeg, token } });
   }
 }

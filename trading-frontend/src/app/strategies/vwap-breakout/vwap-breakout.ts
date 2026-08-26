@@ -6,7 +6,7 @@ import { interval, of, Subscription } from 'rxjs';
 import { catchError, startWith, switchMap } from 'rxjs/operators';
 import { TradingService } from '../../services/trading.service';
 import { VwapBreakoutTradeDto, VwapBreakoutTradeService } from '../../services/vwap-breakout-trade.service';
-import { VwapBreakoutLegPick, VwapBreakoutService, VwapBreakoutStartRequest, VwapBreakoutState } from '../../services/vwap-breakout.service';
+import { VwapBreakoutLegPick, VwapBreakoutService, VwapBreakoutStartRequest, VwapBreakoutState, VwapPreview } from '../../services/vwap-breakout.service';
 import { VwapBreakoutPreset, VwapBreakoutPresetService } from '../../services/vwap-breakout-preset.service';
 
 const INDEX_META = { exchange: 'NSE', symbol: 'Nifty 50', token: '99926000' };
@@ -76,6 +76,11 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
   selectedCe = signal<PremiumMatch | null>(null);
   selectedPe = signal<PremiumMatch | null>(null);
 
+  /** Live VWAP for whichever strikes are picked, refreshed while you're still choosing -
+   *  before a run exists to compute it, so you can see it before committing to Start. */
+  ceVwapPreview = signal<VwapPreview | null>(null);
+  peVwapPreview = signal<VwapPreview | null>(null);
+
   deployedFromPresetId: number | null = null;
 
   runState = signal<VwapBreakoutState | null>(null);
@@ -111,6 +116,7 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
 
   private indexPollSub?: Subscription;
   private stateSub?: Subscription;
+  private vwapPreviewSub?: Subscription;
   private platformId = inject(PLATFORM_ID);
 
   constructor(
@@ -166,11 +172,23 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
           if (state.mode) this.mode = state.mode;
         }
       });
+
+    // Keeps the preview live while you're still choosing strikes (before Start exists to
+    // compute VWAP itself) - the immediate fetch on selection (see selectCe/selectPe)
+    // covers the first value, this just keeps it fresh.
+    this.vwapPreviewSub = interval(5000).subscribe(() => {
+      if (this.running()) return;
+      const ce = this.selectedCe();
+      if (ce) this.refreshVwapPreview('CE', ce.token);
+      const pe = this.selectedPe();
+      if (pe) this.refreshVwapPreview('PE', pe.token);
+    });
   }
 
   ngOnDestroy(): void {
     this.indexPollSub?.unsubscribe();
     this.stateSub?.unsubscribe();
+    this.vwapPreviewSub?.unsubscribe();
   }
 
   toggleSettings(): void {
@@ -211,11 +229,25 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
   selectCe(m: PremiumMatch): void {
     const isDeselect = this.selectedCe()?.strike === m.strike;
     this.selectedCe.set(isDeselect ? null : m);
+    this.ceVwapPreview.set(null);
+    if (!isDeselect) this.refreshVwapPreview('CE', m.token);
   }
 
   selectPe(m: PremiumMatch): void {
     const isDeselect = this.selectedPe()?.strike === m.strike;
     this.selectedPe.set(isDeselect ? null : m);
+    this.peVwapPreview.set(null);
+    if (!isDeselect) this.refreshVwapPreview('PE', m.token);
+  }
+
+  private refreshVwapPreview(side: 'CE' | 'PE', token: string): void {
+    this.vwapBreakoutService.getVwapPreview(this.resultsExchSeg(), token).subscribe({
+      next: (r) => (side === 'CE' ? this.ceVwapPreview.set(r) : this.peVwapPreview.set(r)),
+      error: () => {
+        const failed: VwapPreview = { status: false, message: 'Failed to fetch VWAP.' };
+        if (side === 'CE') this.ceVwapPreview.set(failed); else this.peVwapPreview.set(failed);
+      },
+    });
   }
 
   startStrategy(): void {

@@ -315,22 +315,24 @@ public class VwapBreakoutStrategyEngine {
 
     // ─── Candle polling + VWAP ──────────────────────────────────────────────────
 
-    private void pollCandles(VwapBreakoutRun run, String side) {
-        String token = "CE".equals(side) ? run.getCeToken() : run.getPeToken();
-        if (token == null) return;
+    private record VwapSnapshot(double vwap, double lastClose, String lastTimestamp) {}
 
+    /** Cumulative VWAP (typical-price*volume / volume) from market open 09:15 to now, from
+     *  polled 1-minute candles - shared by the run-bound poller and the standalone preview
+     *  endpoint (getVwapPreview()) used before a strategy is even started. */
+    private VwapSnapshot fetchVwapSnapshot(String exchSeg, String token) {
         String today = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
         Map<String, Object> params = new HashMap<>();
-        params.put("exchange", run.getExchSeg());
+        params.put("exchange", exchSeg);
         params.put("symboltoken", token);
         params.put("interval", "ONE_MINUTE");
         params.put("fromdate", today + " 09:15");
         params.put("todate", LocalDateTime.now().format(CANDLE_TIME_FMT));
 
         Map<String, Object> resp = marketService.getCandleData(params);
-        if (resp == null || !Boolean.TRUE.equals(resp.get("status"))) return;
+        if (resp == null || !Boolean.TRUE.equals(resp.get("status"))) return null;
         Object dataObj = resp.get("data");
-        if (!(dataObj instanceof List<?> rows) || rows.isEmpty()) return;
+        if (!(dataObj instanceof List<?> rows) || rows.isEmpty()) return null;
 
         double cumPV = 0;
         double cumVol = 0;
@@ -348,17 +350,47 @@ public class VwapBreakoutStrategyEngine {
             lastTimestamp = String.valueOf(candle.get(0));
             lastClose = close;
         }
-        if (lastTimestamp == null || cumVol <= 0) return;
+        if (lastTimestamp == null || cumVol <= 0) return null;
+        return new VwapSnapshot(cumPV / cumVol, lastClose, lastTimestamp);
+    }
 
-        double vwap = cumPV / cumVol;
-        lastKnownVwap.put(side, vwap);
-        lastKnownClose.put(side, lastClose);
+    private void pollCandles(VwapBreakoutRun run, String side) {
+        String token = "CE".equals(side) ? run.getCeToken() : run.getPeToken();
+        if (token == null) return;
+
+        VwapSnapshot snap = fetchVwapSnapshot(run.getExchSeg(), token);
+        if (snap == null) return;
+
+        lastKnownVwap.put(side, snap.vwap());
+        lastKnownClose.put(side, snap.lastClose());
 
         String previousTimestamp = lastCandleTimestamp.get(side);
-        if (lastTimestamp.equals(previousTimestamp)) return; // same last candle as last poll - nothing new to evaluate
-        lastCandleTimestamp.put(side, lastTimestamp);
+        if (snap.lastTimestamp().equals(previousTimestamp)) return; // same last candle as last poll - nothing new to evaluate
+        lastCandleTimestamp.put(side, snap.lastTimestamp());
 
-        evaluateCandleClose(run, side, lastClose, vwap);
+        evaluateCandleClose(run, side, snap.lastClose(), snap.vwap());
+    }
+
+    /** Standalone VWAP lookup for a strike you've picked but haven't started a run for yet -
+     *  same calculation as the live engine, just without any run/entry side effects. */
+    public Map<String, Object> getVwapPreview(String exchSeg, String token) {
+        Map<String, Object> result = new HashMap<>();
+        var sessionOpt = sessionStore.getCurrentSession();
+        if (sessionOpt.isEmpty()) {
+            result.put("status", false);
+            result.put("message", "Not logged in to Angel One.");
+            return result;
+        }
+        VwapSnapshot snap = fetchVwapSnapshot(exchSeg, token);
+        if (snap == null) {
+            result.put("status", false);
+            result.put("message", "No candle/volume data available yet today.");
+            return result;
+        }
+        result.put("status", true);
+        result.put("vwap", snap.vwap());
+        result.put("lastClose", snap.lastClose());
+        return result;
     }
 
     private synchronized void evaluateCandleClose(VwapBreakoutRun run, String side, double close, double vwap) {
