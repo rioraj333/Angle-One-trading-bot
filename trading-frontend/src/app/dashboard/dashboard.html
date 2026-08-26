@@ -482,21 +482,93 @@
                       <span class="selection-mode-tag">{{ p.targetType }}</span>
                     </div>
                   </div>
-                  <div class="preset-card-body">
-                    <span>{{ p.indexName }} &middot; premium {{ p.premiumFrom }}&ndash;{{ p.premiumTo }}</span>
-                    <span>{{ p.entryWindowStart }}&ndash;{{ p.entryCutoff }} &middot; {{ p.quantity }} lot &middot; max {{ p.maxTrades }} trade(s)</span>
-                    <span>
-                      @if (p.targetType === 'PNL') {
-                        target &#8377;{{ p.pnlTarget }}{{ p.pnlTrailingStep ? ' (trail ' + p.pnlTrailingStep + ')' : '' }}
-                      } @else {
-                        target {{ p.targetPoints }}pts
-                      }
-                    </span>
-                  </div>
-                  <div class="preset-card-actions">
-                    <button class="btn-secondary" (click)="deployVwapPreset(p)">Deploy</button>
-                    <button class="btn-secondary" (click)="deleteVwapPreset(p.id)">Delete</button>
-                  </div>
+                  @if (editingVwapPresetId() === p.id) {
+                    <div class="preset-edit-form">
+                      <div class="op-field">
+                        <label>Name</label>
+                        <input type="text" class="op-input" [(ngModel)]="vwapEditForm.name" />
+                      </div>
+                      <div class="preset-edit-grid">
+                        <div class="op-field">
+                          <label>Premium From</label>
+                          <input type="number" class="op-input" [(ngModel)]="vwapEditForm.premiumFrom" />
+                        </div>
+                        <div class="op-field">
+                          <label>Premium To</label>
+                          <input type="number" class="op-input" [(ngModel)]="vwapEditForm.premiumTo" />
+                        </div>
+                        <div class="op-field">
+                          <label>Quantity (lots)</label>
+                          <input type="number" class="op-input" [(ngModel)]="vwapEditForm.quantity" min="1" />
+                        </div>
+                        <div class="op-field">
+                          <label>Max trades/session</label>
+                          <input type="number" class="op-input" [(ngModel)]="vwapEditForm.maxTrades" min="1" />
+                        </div>
+                        <div class="op-field">
+                          <label>Time From</label>
+                          <input type="time" class="op-input" [(ngModel)]="vwapEditForm.entryWindowStart" />
+                        </div>
+                        <div class="op-field">
+                          <label>Entry Cutoff</label>
+                          <input type="time" class="op-input" [(ngModel)]="vwapEditForm.entryCutoff" />
+                        </div>
+                        <div class="op-field">
+                          <label>Target Type</label>
+                          <div class="edit-toggle">
+                            <button [class.active]="vwapEditForm.targetType === 'POINTS'" (click)="vwapEditForm.targetType = 'POINTS'">Points</button>
+                            <button [class.active]="vwapEditForm.targetType === 'PNL'" (click)="vwapEditForm.targetType = 'PNL'">P&amp;L</button>
+                          </div>
+                        </div>
+                        <div class="op-field">
+                          <label>Mode</label>
+                          <div class="edit-toggle">
+                            <button [class.active]="vwapEditForm.mode === 'PAPER'" (click)="vwapEditForm.mode = 'PAPER'">Paper</button>
+                            <button [class.active]="vwapEditForm.mode === 'LIVE'" (click)="vwapEditForm.mode = 'LIVE'">Live</button>
+                          </div>
+                        </div>
+                        @if (vwapEditForm.targetType === 'POINTS') {
+                          <div class="op-field">
+                            <label>Target (points)</label>
+                            <input type="number" class="op-input" [(ngModel)]="vwapEditForm.targetPoints" min="1" />
+                          </div>
+                        } @else {
+                          <div class="op-field">
+                            <label>P&amp;L target (&#8377;)</label>
+                            <input type="number" class="op-input" [(ngModel)]="vwapEditForm.pnlTarget" min="1" />
+                          </div>
+                          <div class="op-field">
+                            <label>Trailing step (&#8377;, optional)</label>
+                            <input type="number" class="op-input" [(ngModel)]="vwapEditForm.pnlTrailingStep" min="0" placeholder="Blank = hard stop" />
+                          </div>
+                        }
+                      </div>
+                      @if (vwapEditError()) { <p class="error-msg">{{ vwapEditError() }}</p> }
+                      <div class="preset-card-actions">
+                        <button class="btn-secondary" (click)="saveEditVwapPreset()" [disabled]="vwapEditSaving()">
+                          {{ vwapEditSaving() ? 'Saving...' : 'Save' }}
+                        </button>
+                        <button class="btn-secondary" (click)="cancelEditVwapPreset()">Cancel</button>
+                      </div>
+                    </div>
+                  } @else {
+                    <div class="preset-card-body">
+                      <span>{{ p.indexName }} &middot; premium {{ p.premiumFrom }}&ndash;{{ p.premiumTo }}</span>
+                      <span>{{ p.entryWindowStart }}&ndash;{{ p.entryCutoff }} &middot; {{ p.quantity }} lot &middot; max {{ p.maxTrades }} trade(s)</span>
+                      <span>
+                        @if (p.targetType === 'PNL') {
+                          target &#8377;{{ p.pnlTarget }}{{ p.pnlTrailingStep ? ' (trail ' + p.pnlTrailingStep + ')' : '' }}
+                        } @else {
+                          target {{ p.targetPoints }}pts
+                        }
+                      </span>
+                    </div>
+                    <div class="preset-card-actions">
+                      <button class="btn-secondary" (click)="deployVwapPreset(p)">Deploy</button>
+                      <button class="btn-secondary" (click)="startEditVwapPreset(p)">Edit</button>
+                      <button class="btn-secondary" (click)="deleteVwapPreset(p.id)">Delete</button>
+                    </div>
+                  }
                 </div>
               }
             </div>

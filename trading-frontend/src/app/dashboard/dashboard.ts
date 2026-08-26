@@ -10,7 +10,7 @@ import { TradingService } from '../services/trading.service';
 import { getMarketStatus, MarketStatus } from '../utils/market-hours';
 import { Breakout925DeployStatus, Breakout925Preset, Breakout925PresetService, SaveBreakout925PresetRequest } from '../services/breakout925-preset.service';
 import { Breakout925Service } from '../services/breakout925.service';
-import { VwapBreakoutPreset, VwapBreakoutPresetService } from '../services/vwap-breakout-preset.service';
+import { SaveVwapBreakoutPresetRequest, VwapBreakoutPreset, VwapBreakoutPresetService } from '../services/vwap-breakout-preset.service';
 
 interface PresetEditForm {
   name: string;
@@ -22,6 +22,22 @@ interface PresetEditForm {
   candleToTime: string;
   quantity: number;
   targetPointsList: number[];
+  mode: 'PAPER' | 'LIVE';
+}
+
+interface VwapPresetEditForm {
+  name: string;
+  indexName: string;
+  premiumFrom: number;
+  premiumTo: number;
+  quantity: number;
+  targetPoints: number;
+  targetType: 'POINTS' | 'PNL';
+  pnlTarget: number | null;
+  pnlTrailingStep: number | null;
+  maxTrades: number;
+  entryWindowStart: string;
+  entryCutoff: string;
   mode: 'PAPER' | 'LIVE';
 }
 
@@ -132,6 +148,11 @@ export class DashboardComponent implements OnInit, OnDestroy {
   editForm: PresetEditForm = this.blankEditForm();
   editError = signal('');
   editSaving = signal(false);
+
+  editingVwapPresetId = signal<number | null>(null);
+  vwapEditForm: VwapPresetEditForm = this.blankVwapEditForm();
+  vwapEditError = signal('');
+  vwapEditSaving = signal(false);
 
   activeRun = signal<{
     presetId: number | null;
@@ -381,6 +402,84 @@ export class DashboardComponent implements OnInit, OnDestroy {
       next: () => this.vwapPresets.set(this.vwapPresets().filter((p) => p.id !== id)),
       error: () => {},
     });
+  }
+
+  startEditVwapPreset(preset: VwapBreakoutPreset): void {
+    this.editingVwapPresetId.set(preset.id);
+    this.vwapEditError.set('');
+    this.vwapEditForm = {
+      name: preset.name,
+      indexName: preset.indexName,
+      premiumFrom: preset.premiumFrom,
+      premiumTo: preset.premiumTo,
+      quantity: preset.quantity,
+      targetPoints: preset.targetPoints,
+      targetType: preset.targetType,
+      pnlTarget: preset.pnlTarget ?? 5000,
+      pnlTrailingStep: preset.pnlTrailingStep ?? null,
+      maxTrades: preset.maxTrades,
+      entryWindowStart: preset.entryWindowStart,
+      entryCutoff: preset.entryCutoff,
+      mode: preset.mode,
+    };
+  }
+
+  cancelEditVwapPreset(): void {
+    this.editingVwapPresetId.set(null);
+  }
+
+  saveEditVwapPreset(): void {
+    const id = this.editingVwapPresetId();
+    if (id == null) return;
+    this.vwapEditError.set('');
+
+    if (!this.vwapEditForm.name.trim()) {
+      this.vwapEditError.set('Name is required.');
+      return;
+    }
+    if (this.vwapEditForm.premiumFrom > this.vwapEditForm.premiumTo) {
+      this.vwapEditError.set('Premium "from" must be less than or equal to "to".');
+      return;
+    }
+    if (!this.vwapEditForm.targetPoints || this.vwapEditForm.targetPoints <= 0) {
+      this.vwapEditError.set('Target (points) must be greater than 0.');
+      return;
+    }
+    if (!this.vwapEditForm.maxTrades || this.vwapEditForm.maxTrades <= 0) {
+      this.vwapEditError.set('Max trades must be greater than 0.');
+      return;
+    }
+    if (this.vwapEditForm.targetType === 'PNL' && (!this.vwapEditForm.pnlTarget || this.vwapEditForm.pnlTarget <= 0)) {
+      this.vwapEditError.set('P&L target (₹) must be greater than 0.');
+      return;
+    }
+
+    this.vwapEditSaving.set(true);
+    const request: SaveVwapBreakoutPresetRequest = {
+      ...this.vwapEditForm,
+      exitMode: 'VWAP_CROSS',
+      pnlTarget: this.vwapEditForm.targetType === 'PNL' ? this.vwapEditForm.pnlTarget : null,
+      pnlTrailingStep: this.vwapEditForm.targetType === 'PNL' ? this.vwapEditForm.pnlTrailingStep : null,
+    };
+    this.vwapBreakoutPresetService.update(id, request).subscribe({
+      next: (updated) => {
+        this.vwapEditSaving.set(false);
+        this.vwapPresets.set(this.vwapPresets().map((p) => (p.id === id ? updated : p)));
+        this.editingVwapPresetId.set(null);
+      },
+      error: (err) => {
+        this.vwapEditSaving.set(false);
+        this.vwapEditError.set(err.error?.message || 'Failed to save changes.');
+      },
+    });
+  }
+
+  private blankVwapEditForm(): VwapPresetEditForm {
+    return {
+      name: '', indexName: 'NIFTY', premiumFrom: 150, premiumTo: 250, quantity: 5,
+      targetPoints: 15, targetType: 'POINTS', pnlTarget: 5000, pnlTrailingStep: null,
+      maxTrades: 3, entryWindowStart: '09:25', entryCutoff: '15:00', mode: 'PAPER',
+    };
   }
 
   deployPreset(preset: Breakout925Preset): void {
