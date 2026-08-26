@@ -227,6 +227,12 @@
       }
 
       @if (selectedCe() || selectedPe()) {
+        <div class="premium-search-row">
+          <button class="btn-search-premium" (click)="previewVwap()">Preview CE/PE premium &amp; VWAP</button>
+        </div>
+      }
+
+      @if (ceVwapPreview() || peVwapPreview()) {
         <div class="stat-row">
           @if (selectedCe(); as ce) {
             <div class="stat-box">

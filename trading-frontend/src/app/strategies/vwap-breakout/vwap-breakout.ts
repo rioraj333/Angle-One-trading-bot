@@ -116,7 +116,6 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
 
   private indexPollSub?: Subscription;
   private stateSub?: Subscription;
-  private vwapPreviewSub?: Subscription;
   private platformId = inject(PLATFORM_ID);
 
   constructor(
@@ -172,25 +171,11 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
           if (state.mode) this.mode = state.mode;
         }
       });
-
-    // Keeps the preview live while you're still choosing strikes (before Start exists to
-    // compute VWAP itself) - the immediate fetch on selection (see selectCe/selectPe)
-    // covers the first value, this just keeps it fresh. 20s matches the same cadence the
-    // running engine's own candle poll already uses safely (CANDLE_POLL_RETRY_MS) - 5s was
-    // too aggressive and got rate-limited by Angel One's historical-candle endpoint.
-    this.vwapPreviewSub = interval(20_000).subscribe(() => {
-      if (this.running()) return;
-      const ce = this.selectedCe();
-      if (ce) this.refreshVwapPreview('CE', ce.token);
-      const pe = this.selectedPe();
-      if (pe) this.refreshVwapPreview('PE', pe.token);
-    });
   }
 
   ngOnDestroy(): void {
     this.indexPollSub?.unsubscribe();
     this.stateSub?.unsubscribe();
-    this.vwapPreviewSub?.unsubscribe();
   }
 
   toggleSettings(): void {
@@ -232,14 +217,34 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
     const isDeselect = this.selectedCe()?.strike === m.strike;
     this.selectedCe.set(isDeselect ? null : m);
     this.ceVwapPreview.set(null);
-    if (!isDeselect) this.refreshVwapPreview('CE', m.token);
   }
 
   selectPe(m: PremiumMatch): void {
     const isDeselect = this.selectedPe()?.strike === m.strike;
     this.selectedPe.set(isDeselect ? null : m);
     this.peVwapPreview.set(null);
-    if (!isDeselect) this.refreshVwapPreview('PE', m.token);
+  }
+
+  /** Manual, on-demand fetch (Preview button) - no auto-polling, so this is the only thing
+   *  that ever calls the VWAP-preview endpoint before a run exists. Keeps API load to
+   *  exactly what you ask for, rather than an ambient poll that risks Angel One's rate
+   *  limit (see the 5s-poll incident this replaced). */
+  previewVwap(): void {
+    this.premiumSearchError.set('');
+    const ce = this.selectedCe();
+    const pe = this.selectedPe();
+    if (!ce && !pe) {
+      this.premiumSearchError.set('Select at least one of CE or PE first.');
+      return;
+    }
+    if (ce) {
+      this.ceVwapPreview.set(null);
+      this.refreshVwapPreview('CE', ce.token);
+    }
+    if (pe) {
+      this.peVwapPreview.set(null);
+      this.refreshVwapPreview('PE', pe.token);
+    }
   }
 
   private refreshVwapPreview(side: 'CE' | 'PE', token: string): void {
