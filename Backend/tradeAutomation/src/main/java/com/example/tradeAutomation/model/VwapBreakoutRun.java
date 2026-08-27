@@ -52,10 +52,15 @@ public class VwapBreakoutRun {
      *  from its peak. */
     private Double pnlTrailingStep;
 
-    /** Running total of realized P&L across every closed trade this session - only meaningful
-     *  when targetType=PNL. */
+    /** Running total of realized P&L across every closed trade this session - tracked in both
+     *  targetType modes (POINTS included) so maxDailyLoss can guard either one. */
     @Column(nullable = false)
     private Double cumulativeRealizedPnl = 0.0;
+
+    /** Optional safety net, independent of targetType/maxTrades: stop the whole session the
+     *  moment cumulative realized loss for the day reaches this many rupees. Guards against a
+     *  choppy/whipsaw day burning through maxTrades in a string of small VWAP-cross losses. */
+    private Double maxDailyLoss;
 
     @Column(nullable = false)
     private boolean pnlTrailingActive = false;
@@ -137,6 +142,8 @@ public class VwapBreakoutRun {
     public void setPnlTarget(Double pnlTarget) { this.pnlTarget = pnlTarget; }
     public Double getPnlTrailingStep() { return pnlTrailingStep; }
     public void setPnlTrailingStep(Double pnlTrailingStep) { this.pnlTrailingStep = pnlTrailingStep; }
+    public Double getMaxDailyLoss() { return maxDailyLoss; }
+    public void setMaxDailyLoss(Double maxDailyLoss) { this.maxDailyLoss = maxDailyLoss; }
     public Double getCumulativeRealizedPnl() { return cumulativeRealizedPnl; }
     public void setCumulativeRealizedPnl(Double cumulativeRealizedPnl) { this.cumulativeRealizedPnl = cumulativeRealizedPnl; }
     public boolean isPnlTrailingActive() { return pnlTrailingActive; }

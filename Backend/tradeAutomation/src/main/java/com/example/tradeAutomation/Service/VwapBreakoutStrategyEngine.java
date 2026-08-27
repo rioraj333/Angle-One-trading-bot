@@ -90,7 +90,7 @@ public class VwapBreakoutStrategyEngine {
 
     public record VwapBreakoutStartRequest(
             String indexName, String exchSeg, Integer quantity, Double targetPoints, String targetType,
-            Double pnlTarget, Double pnlTrailingStep, Integer maxTrades,
+            Double pnlTarget, Double pnlTrailingStep, Double maxDailyLoss, Integer maxTrades,
             String entryWindowStart, String entryCutoff, String exitMode, String mode,
             LegPick ce, LegPick pe, Long presetId) {}
 
@@ -134,6 +134,9 @@ public class VwapBreakoutStrategyEngine {
                 throw new IllegalStateException("P&L trailing step can't be negative.");
             }
         }
+        if (request.maxDailyLoss() != null && request.maxDailyLoss() <= 0) {
+            throw new IllegalStateException("Max daily loss must be greater than 0.");
+        }
 
         VwapBreakoutRun run = new VwapBreakoutRun();
         run.setRunDate(LocalDate.now());
@@ -145,6 +148,7 @@ public class VwapBreakoutStrategyEngine {
         run.setTargetType(targetType);
         run.setPnlTarget(request.pnlTarget());
         run.setPnlTrailingStep(request.pnlTrailingStep());
+        run.setMaxDailyLoss(request.maxDailyLoss());
         run.setCumulativeRealizedPnl(0.0);
         run.setPnlTrailingActive(false);
         run.setMaxTrades(request.maxTrades());
@@ -201,9 +205,12 @@ public class VwapBreakoutStrategyEngine {
                         + (request.pnlTrailingStep() != null && request.pnlTrailingStep() > 0
                                 ? " (trailing by Rs" + request.pnlTrailingStep() + " once reached)" : " (hard stop)")
                 : "target " + request.targetPoints() + " pts";
+        String lossCutoffDesc = request.maxDailyLoss() != null && request.maxDailyLoss() > 0
+                ? ", max daily loss Rs" + request.maxDailyLoss() : "";
         log(run, "STARTED", "Armed " + request.mode() + " run for " + request.indexName() + ", quantity "
                 + request.quantity() + " lots, " + targetDesc + ", max " + request.maxTrades()
-                + " trade(s), entry window " + request.entryWindowStart() + "-" + request.entryCutoff() + ".");
+                + " trade(s), entry window " + request.entryWindowStart() + "-" + request.entryCutoff()
+                + lossCutoffDesc + ".");
         return getState();
     }
 
@@ -603,17 +610,21 @@ public class VwapBreakoutStrategyEngine {
         if (!"ENTRY_CONFIRMED".equals(legStatus) && !"ENTRY_PLACED".equals(legStatus)) return;
 
         double realizedPnl = closeLeg(run, side, reason, exitPrice);
+        // Tracked in both targetType modes (not just PNL) so maxDailyLoss can guard POINTS too.
+        run.setCumulativeRealizedPnl(run.getCumulativeRealizedPnl() + realizedPnl);
 
         String otherSide = "CE".equals(side) ? "PE" : "CE";
         String otherLegStatus = "CE".equals(otherSide) ? run.getCeLegStatus() : run.getPeLegStatus();
+        boolean lossCutoffStop = checkMaxDailyLoss(run);
 
         if ("PNL".equals(run.getTargetType())) {
-            run.setCumulativeRealizedPnl(run.getCumulativeRealizedPnl() + realizedPnl);
             boolean pnlGovernorStop = checkPnlGovernor(run);
-            if (pnlGovernorStop || run.getEntryCount() >= run.getMaxTrades()) {
+            if (pnlGovernorStop || lossCutoffStop || run.getEntryCount() >= run.getMaxTrades()) {
                 String stopMsg = pnlGovernorStop
                         ? "P&L governor stopped the session (cumulative Rs" + String.format("%.2f", run.getCumulativeRealizedPnl()) + ")."
-                        : "all " + run.getMaxTrades() + " configured trade(s) used, strategy stops here.";
+                        : lossCutoffStop
+                                ? "Max daily loss of Rs" + run.getMaxDailyLoss() + " hit (cumulative Rs" + String.format("%.2f", run.getCumulativeRealizedPnl()) + "), strategy stops here."
+                                : "all " + run.getMaxTrades() + " configured trade(s) used, strategy stops here.";
                 if ("WATCHING".equals(otherLegStatus)) markSkipped(run, otherSide, stopMsg);
             } else {
                 continueOrReverse(run, side, otherSide, otherLegStatus);
@@ -621,8 +632,11 @@ public class VwapBreakoutStrategyEngine {
         } else if ("Target hit".equals(reason)) {
             if ("WATCHING".equals(otherLegStatus)) markSkipped(run, otherSide, side + " already hit target, strategy stops here.");
         } else { // VWAP cross (SL)
-            if (run.getEntryCount() >= run.getMaxTrades()) {
-                if ("WATCHING".equals(otherLegStatus)) markSkipped(run, otherSide, "all " + run.getMaxTrades() + " configured trade(s) used, strategy stops here.");
+            if (lossCutoffStop || run.getEntryCount() >= run.getMaxTrades()) {
+                String stopMsg = lossCutoffStop
+                        ? "Max daily loss of Rs" + run.getMaxDailyLoss() + " hit (cumulative Rs" + String.format("%.2f", run.getCumulativeRealizedPnl()) + "), strategy stops here."
+                        : "all " + run.getMaxTrades() + " configured trade(s) used, strategy stops here.";
+                if ("WATCHING".equals(otherLegStatus)) markSkipped(run, otherSide, stopMsg);
             } else {
                 continueOrReverse(run, side, otherSide, otherLegStatus);
             }
@@ -674,6 +688,17 @@ public class VwapBreakoutStrategyEngine {
         double peak = Math.max(run.getPeakCumulativePnl(), run.getCumulativeRealizedPnl());
         run.setPeakCumulativePnl(peak);
         return run.getCumulativeRealizedPnl() <= peak - run.getPnlTrailingStep();
+    }
+
+    /**
+     * Both targetType modes. Optional safety net independent of maxTrades/pnlTarget: stop
+     * the whole session the instant cumulative realized loss for the day reaches
+     * maxDailyLoss rupees. Guards against a choppy/whipsaw day burning through every
+     * configured trade in a string of small VWAP-cross losses before the real move happens.
+     */
+    private boolean checkMaxDailyLoss(VwapBreakoutRun run) {
+        if (run.getMaxDailyLoss() == null || run.getMaxDailyLoss() <= 0) return false;
+        return run.getCumulativeRealizedPnl() <= -run.getMaxDailyLoss();
     }
 
     private void markSkipped(VwapBreakoutRun run, String side, String reasonMsg) {
@@ -838,6 +863,7 @@ public class VwapBreakoutStrategyEngine {
         state.put("targetType", run.getTargetType());
         state.put("pnlTarget", run.getPnlTarget());
         state.put("pnlTrailingStep", run.getPnlTrailingStep());
+        state.put("maxDailyLoss", run.getMaxDailyLoss());
         state.put("cumulativeRealizedPnl", run.getCumulativeRealizedPnl());
         state.put("pnlTrailingActive", run.isPnlTrailingActive());
         state.put("peakCumulativePnl", run.getPeakCumulativePnl());
@@ -851,6 +877,7 @@ public class VwapBreakoutStrategyEngine {
         if (run.getCeToken() != null) {
             Map<String, Object> ce = new HashMap<>();
             ce.put("symbol", run.getCeSymbol());
+            ce.put("token", run.getCeToken());
             ce.put("strike", run.getCeStrike());
             ce.put("ltp", liveLtp.get(run.getCeToken()));
             ce.put("vwap", lastKnownVwap.get("CE"));
@@ -868,6 +895,7 @@ public class VwapBreakoutStrategyEngine {
         if (run.getPeToken() != null) {
             Map<String, Object> pe = new HashMap<>();
             pe.put("symbol", run.getPeSymbol());
+            pe.put("token", run.getPeToken());
             pe.put("strike", run.getPeStrike());
             pe.put("ltp", liveLtp.get(run.getPeToken()));
             pe.put("vwap", lastKnownVwap.get("PE"));

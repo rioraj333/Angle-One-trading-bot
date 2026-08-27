@@ -2,195 +2,188 @@
   <header class="page-header">
     <a routerLink="/strategies" class="back-link">&larr; Strategies</a>
     <h1>VWAP Breakout Strategy</h1>
-  </header>
-
-  <div class="status-bar">
     @if (running()) {
       <span class="mode-pill ticking">{{ runState()?.status }}</span>
-      @if (deployedPreset(); as dp) {
-        <span class="mode-pill">{{ dp.name }}</span>
-      }
-      <span class="mode-pill">Trade {{ runState()?.entryCount ?? 0 }} of {{ runState()?.maxTrades ?? maxTrades }}</span>
-      @if (runState()?.targetType === 'PNL') {
-        <span class="mode-pill" [class.ticking]="(runState()?.cumulativeRealizedPnl ?? 0) >= 0">
-          Session P&amp;L {{ fmtPnl(runState()?.cumulativeRealizedPnl) }} / {{ fmtPnl(runState()?.pnlTarget) }}
-          @if (runState()?.pnlTrailingActive) { &middot; trailing active (peak {{ fmtPnl(runState()?.peakCumulativePnl) }}) }
-        </span>
-      }
-    }
-    @if (!running()) {
-      <button class="btn-toggle-tick" (click)="startStrategy()">Start</button>
+      <span class="header-clock">{{ fmtClock(currentTime()) }}</span>
     } @else {
-      <button class="btn-toggle-tick active" (click)="stopStrategy()">Stop</button>
-    }
-  </div>
-
-  @if (runState()?.events?.length) {
-    <div class="activity-log">
-      <div class="side-title">Activity Log</div>
-      <div class="activity-log-list">
-        @for (e of runState()!.events!; track $index) {
-          <div class="activity-log-row">
-            <span class="activity-log-time">{{ fmtEventTime(e.time) }}</span>
-            <span class="activity-log-msg">{{ e.message }}</span>
-          </div>
+      <div class="header-actions">
+        @if (presetActionMsg()) { <span class="preset-action-msg">{{ presetActionMsg() }}</span> }
+        @if (selectedPreset(); as sp) {
+          <button class="btn-header-save" (click)="updatePreset()">&#128190; Update "{{ sp.name }}"</button>
+          <button class="btn-header-delete" (click)="deletePreset()">&#128465; Delete</button>
+        } @else {
+          <button class="btn-header-save" (click)="openSavePresetModal()">&#128190; Save</button>
         }
       </div>
-    </div>
+    }
+  </header>
+
+  <div class="page-content">
+
+  @if (errorMsg()) {
+    <div class="error-msg">{{ errorMsg() }}</div>
   }
 
-  <div class="watch-layout">
+  @if (!running()) {
 
-    <div class="settings-card">
-      <div class="settings-header" (click)="toggleSettings()">
-        <div>
-          <h2>Settings</h2>
-          <p class="settings-sub">Quantity, target, entry window, mode &amp; saved presets.</p>
+    <!-- ============================= CONFIGURATION VIEW ============================= -->
+    @if (presets().length > 0) {
+      <div class="form-row preset-row-top">
+        <label for="preset">Saved presets</label>
+        <select id="preset" class="select-input" [value]="deployedFromPresetId() ?? ''" (change)="applyPreset($any($event.target).value)">
+          <option value="">Custom...</option>
+          @for (p of presets(); track p.id) {
+            <option [value]="p.id">{{ p.name }} ({{ p.quantity }} lot, {{ p.mode }})</option>
+          }
+        </select>
+      </div>
+    }
+
+    <div class="config-layout">
+     <div class="cfg-card-grid">
+      <div class="cfg-card">
+        <div class="cfg-card-title"><span class="cfg-card-num">1</span> Market &amp; Strategy</div>
+        <div class="form-row">
+          <label>Select Market</label>
+          <select class="select-input" disabled><option>NIFTY</option></select>
         </div>
-        <button class="btn-collapse" [class.open]="settingsOpen()" (click)="toggleSettings(); $event.stopPropagation()">
-          {{ settingsOpen() ? '▲ Hide' : '▼ Show' }}
-        </button>
+        <div class="form-row">
+          <label>Strategy</label>
+          <select class="select-input" disabled><option>VWAP Breakout</option></select>
+        </div>
+        <div class="form-row">
+          <label>Trade Mode</label>
+          <div class="mode-toggle">
+            <button [class.active]="mode === 'PAPER'" (click)="mode = 'PAPER'">Paper</button>
+            <button [class.active]="mode === 'LIVE'" (click)="mode = 'LIVE'">Live</button>
+          </div>
+        </div>
       </div>
 
-      @if (settingsOpen()) {
-        @if (presets().length > 0) {
+      <div class="cfg-card">
+        <div class="cfg-card-title"><span class="cfg-card-num">2</span> Trade Settings</div>
+        <div class="form-row">
+          <label for="qty">Quantity (Lots)</label>
+          <select id="qty" [(ngModel)]="quantity" class="select-input">
+            @for (q of quantityOptions; track q) {
+              <option [value]="q">{{ q }}</option>
+            }
+          </select>
+          <p class="field-hint">Total lots per trade</p>
+        </div>
+        <div class="form-row">
+          <label for="maxTrades">Max Trades / Session</label>
+          <input id="maxTrades" type="number" class="select-input" [(ngModel)]="maxTrades" min="1" />
+          <p class="field-hint">Max entries per day</p>
+        </div>
+      </div>
+
+      <div class="cfg-card">
+        <div class="cfg-card-title"><span class="cfg-card-num">3</span> Timing</div>
+        <div class="form-row">
+          <label for="entryStart">Entry Start Time</label>
+          <input id="entryStart" type="time" class="select-input" [(ngModel)]="entryWindowStart" />
+          <p class="field-hint">Allowed entry after this time</p>
+        </div>
+        <div class="form-row">
+          <label for="entryCutoff">Entry Cutoff</label>
+          <input id="entryCutoff" type="time" class="select-input" [(ngModel)]="entryCutoff" />
+          <p class="field-hint">No new entries after this time</p>
+        </div>
+      </div>
+
+      <div class="cfg-card">
+        <div class="cfg-card-title"><span class="cfg-card-num">4</span> Entry &amp; Exit Rules</div>
+        <div class="form-row">
+          <label>Entry Condition</label>
+          <select class="select-input" disabled><option>Break above VWAP</option></select>
+          <p class="field-hint">Candle closes above VWAP to enter</p>
+        </div>
+        <div class="form-row">
+          <label>Exit Rule</label>
+          <div class="mode-toggle">
+            <button [class.active]="targetType === 'POINTS'" (click)="targetType = 'POINTS'">Target (Points)</button>
+            <button [class.active]="targetType === 'PNL'" (click)="targetType = 'PNL'">P&amp;L (&#8377;)</button>
+          </div>
+          <p class="field-hint">Candle closes below VWAP to exit</p>
+        </div>
+      </div>
+
+      <div class="cfg-card">
+        <div class="cfg-card-title"><span class="cfg-card-num">5</span> Target &amp; Risk Management</div>
+        @if (targetType === 'POINTS') {
           <div class="form-row">
-            <label for="preset">Saved presets</label>
-            <select id="preset" class="select-input" (change)="applyPreset($any($event.target).value)">
-              <option value="">Custom...</option>
-              @for (p of presets(); track p.id) {
-                <option [value]="p.id">{{ p.name }} ({{ p.quantity }} lot, {{ p.mode }})</option>
-              }
-            </select>
+            <label for="target">Target (Points)</label>
+            <input id="target" type="number" class="select-input" [(ngModel)]="targetPoints" min="1" />
+            <p class="field-hint">Profit target in points</p>
+          </div>
+        } @else {
+          <div class="form-row">
+            <label for="pnlTarget">Session P&amp;L Target (&#8377;)</label>
+            <input id="pnlTarget" type="number" class="select-input" [(ngModel)]="pnlTarget" min="1" />
+          </div>
+          <div class="form-row">
+            <label for="pnlTrailingStep">Trailing Step (&#8377;, optional)</label>
+            <input id="pnlTrailingStep" type="number" class="select-input" [(ngModel)]="pnlTrailingStep" min="0" placeholder="Blank = hard stop" />
           </div>
         }
-
-        <div class="settings-grid">
-          <div class="form-row">
-            <label for="qty">Quantity (lots)</label>
-            <select id="qty" [(ngModel)]="quantity" class="select-input" [disabled]="running()">
-              @for (q of quantityOptions; track q) {
-                <option [value]="q">{{ q }}</option>
-              }
-            </select>
-          </div>
-
-          <div class="form-row">
-            <label for="maxTrades">Max trades/session</label>
-            <input id="maxTrades" type="number" class="select-input" [(ngModel)]="maxTrades" min="1" [disabled]="running()" />
-          </div>
-
-          @if (targetType === 'POINTS') {
-            <div class="form-row">
-              <label for="target">Target (points)</label>
-              <input id="target" type="number" class="select-input" [(ngModel)]="targetPoints" min="1" [disabled]="running()" />
-            </div>
-          }
+        <div class="form-row">
+          <label for="maxDailyLoss">Max Daily Loss (&#8377;, optional)</label>
+          <input id="maxDailyLoss" type="number" class="select-input" [(ngModel)]="maxDailyLoss" min="1" placeholder="No cap" />
+          <p class="field-hint">Stops the session if loss reaches this amount</p>
         </div>
+      </div>
 
-        <div class="settings-grid">
-          <div class="form-row">
-            <label>Mode</label>
-            <div class="mode-toggle toggle-narrow">
-              <button [class.active]="mode === 'PAPER'" (click)="mode = 'PAPER'" [disabled]="running()">Paper</button>
-              <button [class.active]="mode === 'LIVE'" (click)="mode = 'LIVE'" [disabled]="running()">Live</button>
-            </div>
-          </div>
+      <div class="cfg-card">
+        <div class="cfg-card-title"><span class="cfg-card-num">6</span> Premium Selection Range</div>
+        <p class="field-hint cfg-card-sub">Find NIFTY CE/PE options near this premium.</p>
 
-          <div class="form-row">
-            <label>Exit rule</label>
-            <div class="mode-toggle toggle-narrow">
-              <button [class.active]="exitMode === 'VWAP_CROSS'" (click)="exitMode = 'VWAP_CROSS'" [disabled]="running()">VWAP cross</button>
-              <button [class.active]="exitMode === 'TRAILING_SL'" (click)="exitMode = 'TRAILING_SL'" [disabled]="running()">Trailing SL</button>
-            </div>
-            @if (exitMode === 'TRAILING_SL') {
-              <p class="field-hint">Not available yet - pick VWAP cross for now.</p>
-            }
-          </div>
-        </div>
-
-        <div class="form-row target-type-row">
-          <label>Session target type</label>
-          <div class="mode-toggle toggle-narrow">
-            <button [class.active]="targetType === 'POINTS'" (click)="targetType = 'POINTS'" [disabled]="running()">Points</button>
-            <button [class.active]="targetType === 'PNL'" (click)="targetType = 'PNL'" [disabled]="running()">P&amp;L (&#8377;)</button>
+        <div class="form-row">
+          <label>Selection</label>
+          <div class="mode-toggle">
+            <button [class.active]="selectionMode === 'MANUAL'" (click)="selectionMode = 'MANUAL'">Manual</button>
+            <button [class.active]="selectionMode === 'AUTO'" (click)="selectionMode = 'AUTO'">Auto</button>
           </div>
           <p class="field-hint">
-            @if (targetType === 'POINTS') {
-              Any single trade hitting its points target stops the session for the day (unchanged default).
+            @if (selectionMode === 'MANUAL') {
+              Pick a CE/PE strike yourself from the search results below.
             } @else {
-              Trades keep cycling (win or lose) until the session's cumulative realized P&amp;L hits the target below.
+              Highest-premium CE/PE strike in range is picked automatically on search - click a different one to override.
             }
           </p>
         </div>
 
-        @if (targetType === 'PNL') {
-          <div class="settings-grid">
-            <div class="form-row">
-              <label for="pnlTarget">Session P&amp;L target (&#8377;)</label>
-              <input id="pnlTarget" type="number" class="select-input" [(ngModel)]="pnlTarget" min="1" [disabled]="running()" />
-              <p class="field-hint">Stops the session once cumulative realized P&amp;L reaches this - or arms the trailing stop instead, if set.</p>
-            </div>
-
-            <div class="form-row">
-              <label for="pnlTrailingStep">Trailing step (&#8377;, optional)</label>
-              <input id="pnlTrailingStep" type="number" class="select-input" [(ngModel)]="pnlTrailingStep" min="0" placeholder="Leave blank for a hard stop" [disabled]="running()" />
-              <p class="field-hint">
-                @if (pnlTrailingStep) {
-                  Once cumulative P&amp;L first reaches &#8377;{{ pnlTarget }}, the session keeps going but stops if it retraces &#8377;{{ pnlTrailingStep }} from its peak.
-                } @else {
-                  Blank = hard stop the instant cumulative P&amp;L reaches &#8377;{{ pnlTarget }}.
-                }
-              </p>
-            </div>
-          </div>
-        }
-
-        <div class="settings-grid">
-          <div class="form-row">
-            <label for="entryStart">Entry window start</label>
-            <input id="entryStart" type="time" class="select-input" [(ngModel)]="entryWindowStart" [disabled]="running()" />
-          </div>
-
-          <div class="form-row">
-            <label for="entryCutoff">Entry cutoff (no new entries after)</label>
-            <input id="entryCutoff" type="time" class="select-input" [(ngModel)]="entryCutoff" [disabled]="running()" />
-          </div>
+        <div class="premium-range-inline">
+          <input type="number" class="select-input premium-input" [(ngModel)]="premiumFrom" placeholder="From" />
+          <span class="range-to-label">to</span>
+          <input type="number" class="select-input premium-input" [(ngModel)]="premiumTo" placeholder="To" />
         </div>
-
-        <div class="settings-divider"></div>
-
-        <div class="form-row preset-save-row">
-          <input type="text" [(ngModel)]="newPresetName" placeholder="Preset name" class="select-input" />
-          <button class="btn-secondary" (click)="saveCurrentAsPreset()" [disabled]="!newPresetName.trim()">Save preset</button>
-        </div>
-
-        @if (mode === 'LIVE') {
-          <div class="live-warning">
-            Live mode is ACTIVE — entries and exits (target or VWAP-cross) are real MARKET orders. There are no
-            resting broker orders here since VWAP moves every candle; every exit is placed the instant it's detected.
-          </div>
-        }
-      }
-    </div>
-
-    <div class="stat-row">
-      <div class="stat-box">
-        <span class="stat-label">NIFTY spot</span>
-        <div class="stat-value">{{ fmt(indexLtp()) }}</div>
-      </div>
-    </div>
-
-    @if (!running()) {
-      <div class="premium-search-row">
-        <span class="stat-label">Select Premium</span>
-        <input type="number" class="select-input premium-input" [(ngModel)]="premiumFrom" placeholder="From" />
-        <span class="range-to-label">to</span>
-        <input type="number" class="select-input premium-input" [(ngModel)]="premiumTo" placeholder="To" />
-        <button class="btn-search-premium" (click)="searchPremium()" [disabled]="premiumSearching()">
+        <button class="btn-search-premium btn-full" (click)="searchPremium()" [disabled]="premiumSearching()">
           @if (premiumSearching()) { Searching... } @else { Search Premium }
         </button>
       </div>
+     </div>
+
+     <div class="config-summary-bar">
+       <div class="cfg-section-label summary-title">Configuration Summary</div>
+       <div class="summary-items">
+         <div class="summary-item"><span>Market</span><strong>NIFTY</strong></div>
+         <div class="summary-item"><span>Strategy</span><strong>VWAP Breakout</strong></div>
+         <div class="summary-item"><span>Mode</span><strong>{{ mode === 'PAPER' ? 'Paper Trading' : 'Live Trading' }}</strong></div>
+         <div class="summary-item"><span>Lots</span><strong>{{ quantity }}</strong></div>
+         <div class="summary-item"><span>Max Trades</span><strong>{{ maxTrades }}</strong></div>
+         <div class="summary-item"><span>Entry Time</span><strong>{{ entryWindowStart }}</strong></div>
+         <div class="summary-item">
+           <span>Target</span>
+           <strong>{{ targetType === 'POINTS' ? (targetPoints + ' pts') : ('₹' + pnlTarget) }}</strong>
+         </div>
+         <div class="summary-item"><span>Premium Range</span><strong>&#8377;{{ premiumFrom }} - &#8377;{{ premiumTo }}</strong></div>
+         <div class="summary-item"><span>Selection</span><strong>{{ selectionMode === 'AUTO' ? 'Auto (highest premium)' : 'Manual' }}</strong></div>
+         <div class="summary-item"><span>Condition</span><strong>Break above VWAP</strong></div>
+       </div>
+       <button class="btn-start-strategy" (click)="startStrategy()">&#9654; Start Strategy</button>
+     </div>
+    </div>
 
       @if (premiumSearchError()) {
         <div class="error-msg">{{ premiumSearchError() }}</div>
@@ -274,26 +267,230 @@
           }
         </div>
       }
+
+      <div class="cfg-section-label">Strategy Workflow</div>
+      <div class="workflow-strip">
+        @for (step of workflowSteps(); track step.label; let i = $index) {
+          <div class="workflow-step" [class.done]="step.done" [class.active-step]="step.active">
+            <div class="workflow-dot">{{ step.done ? '✓' : i + 1 }}</div>
+            <div class="workflow-label">{{ step.label }}</div>
+            <div class="workflow-sub">{{ step.sub }}</div>
+          </div>
+          @if (!$last) { <div class="workflow-connector" [class.done]="step.done"></div> }
+        }
+      </div>
+
+    @if (mode === 'LIVE') {
+      <div class="live-warning">
+        Live mode is ACTIVE — entries and exits (target or VWAP-cross) are real MARKET orders. There are no
+        resting broker orders here since VWAP moves every candle; every exit is placed the instant it's detected.
+      </div>
     }
 
-    @if (running() && (ceLeg() || peLeg())) {
-      <div class="stat-row">
+  } @else {
+
+    <!-- ================================ RUNNING VIEW ================================ -->
+    <p class="run-subtitle">NIFTY &middot; {{ runState()?.mode === 'LIVE' ? 'Live Trading' : 'Paper Trading' }} &middot; {{ runState()?.quantity ?? quantity }} lot(s)</p>
+
+    <div class="stat-cards-row">
+      <div class="stat-card">
+        <span class="stat-card-label">NIFTY Spot</span>
+        <div class="stat-card-value" [class.up]="(indexQuote()?.netChange ?? 0) >= 0" [class.down]="(indexQuote()?.netChange ?? 0) < 0">{{ fmt(indexLtp()) }}</div>
+        @if (indexQuote()) {
+          <span class="stat-card-sub" [class.up]="indexQuote()!.netChange >= 0" [class.down]="indexQuote()!.netChange < 0">{{ fmtChange(indexQuote()) }}</span>
+        }
+        @if (sparklinePoints(); as pts) {
+          <svg class="sparkline" viewBox="0 0 100 28" preserveAspectRatio="none">
+            <polyline [attr.points]="pts" [class.up]="(indexQuote()?.netChange ?? 0) >= 0" [class.down]="(indexQuote()?.netChange ?? 0) < 0" />
+          </svg>
+        }
+      </div>
+      <div class="stat-card">
+        <span class="stat-card-label">Session P&amp;L</span>
+        <div class="stat-card-value" [class.up]="(runState()?.cumulativeRealizedPnl ?? 0) >= 0" [class.down]="(runState()?.cumulativeRealizedPnl ?? 0) < 0">
+          {{ fmtPnl(runState()?.cumulativeRealizedPnl) }}
+        </div>
+        @if (runState()?.targetType === 'PNL' && runState()?.pnlTarget) {
+          <span class="stat-card-sub">Target {{ fmtPnl(runState()?.pnlTarget) }}</span>
+        } @else if (runState()?.maxDailyLoss) {
+          <span class="stat-card-sub">Max loss &#8377;{{ runState()?.maxDailyLoss }}</span>
+        }
+        @if (sessionProgressPct(); as pct) {
+          <div class="mini-progress"><div class="mini-progress-fill" [style.width.%]="pct"></div></div>
+        }
+      </div>
+      <div class="stat-card">
+        <span class="stat-card-label">Trades Today</span>
+        <div class="stat-card-value">{{ runState()?.entryCount ?? 0 }} / {{ runState()?.maxTrades ?? maxTrades }}</div>
+        <span class="stat-card-sub">Wins {{ winsCount() }} &middot; Losses {{ lossesCount() }} &middot; Win rate {{ winRatePct() | number:'1.0-0' }}%</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-card-label">Status</span>
+        <div class="stat-card-value status-value">{{ (cePositionOpen() || pePositionOpen()) ? 'In position' : (runState()?.status === 'DONE' ? 'Done' : 'Monitoring') }}</div>
+        <span class="stat-card-sub">{{ statusHeadline() }}</span>
+      </div>
+    </div>
+
+    @if (ceLeg() || peLeg()) {
+      <div class="option-cards-row">
         @if (ceLeg(); as ce) {
-          <div class="stat-box">
-            <span class="stat-label">CE {{ ce.strike }} tick price</span>
-            <div class="stat-value">{{ fmt(ce.ltp) }}</div>
-            <div class="candle-row"><span>VWAP</span><strong>{{ fmt(ce.vwap) }}</strong></div>
+          <div class="option-card ce">
+            <div class="option-card-header">
+              <span class="option-symbol">NIFTY {{ ce.strike }} CE</span>
+              @if (moneyness('CE', ce.strike); as tag) { <span class="tag-pill">{{ tag }}</span> }
+            </div>
+            <div class="option-price" [class.up]="(ce.ltp ?? 0) > (ce.vwap ?? 0)" [class.down]="(ce.ltp ?? 0) <= (ce.vwap ?? 0)">{{ fmt(ce.ltp) }}</div>
+            <span class="tag-pill" [class.tag-up]="(ce.ltp ?? 0) > (ce.vwap ?? 0)" [class.tag-down]="(ce.ltp ?? 0) <= (ce.vwap ?? 0)">
+              {{ (ce.ltp ?? 0) > (ce.vwap ?? 0) ? 'ABOVE VWAP' : 'BELOW VWAP' }}
+            </span>
+            <div class="option-detail-grid">
+              <div><span>VWAP</span><strong>{{ fmt(ce.vwap) }}</strong></div>
+              <div><span>Status</span><strong>{{ legStatusLabel(ce.legStatus) }}</strong></div>
+              @if (ceQuote(); as q) {
+                <div><span>Change</span><strong [class.up]="q.netChange >= 0" [class.down]="q.netChange < 0">{{ fmtChange(q) }}</strong></div>
+                <div><span>Volume</span><strong>{{ fmtVolume(q.volume) }}</strong></div>
+                <div><span>OI</span><strong>{{ fmtVolume(q.oi) }}</strong></div>
+              }
+              @if (ce.entryPrice != null) {
+                <div><span>Entry</span><strong>{{ fmt(ce.entryPrice) }}</strong></div>
+                <div><span>Target</span><strong>{{ fmt(ce.target) }}</strong></div>
+                <div>
+                  <span>P&amp;L</span>
+                  <strong [class.up]="(ce.unrealizedPnl ?? 0) >= 0" [class.down]="(ce.unrealizedPnl ?? 0) < 0">{{ fmtPnl(ce.unrealizedPnl) }}</strong>
+                </div>
+              }
+            </div>
           </div>
         }
         @if (peLeg(); as pe) {
-          <div class="stat-box">
-            <span class="stat-label">PE {{ pe.strike }} tick price</span>
-            <div class="stat-value">{{ fmt(pe.ltp) }}</div>
-            <div class="candle-row"><span>VWAP</span><strong>{{ fmt(pe.vwap) }}</strong></div>
+          <div class="option-card pe">
+            <div class="option-card-header">
+              <span class="option-symbol">NIFTY {{ pe.strike }} PE</span>
+              @if (moneyness('PE', pe.strike); as tag) { <span class="tag-pill">{{ tag }}</span> }
+            </div>
+            <div class="option-price" [class.up]="(pe.ltp ?? 0) > (pe.vwap ?? 0)" [class.down]="(pe.ltp ?? 0) <= (pe.vwap ?? 0)">{{ fmt(pe.ltp) }}</div>
+            <span class="tag-pill" [class.tag-up]="(pe.ltp ?? 0) > (pe.vwap ?? 0)" [class.tag-down]="(pe.ltp ?? 0) <= (pe.vwap ?? 0)">
+              {{ (pe.ltp ?? 0) > (pe.vwap ?? 0) ? 'ABOVE VWAP' : 'BELOW VWAP' }}
+            </span>
+            <div class="option-detail-grid">
+              <div><span>VWAP</span><strong>{{ fmt(pe.vwap) }}</strong></div>
+              <div><span>Status</span><strong>{{ legStatusLabel(pe.legStatus) }}</strong></div>
+              @if (peQuote(); as q) {
+                <div><span>Change</span><strong [class.up]="q.netChange >= 0" [class.down]="q.netChange < 0">{{ fmtChange(q) }}</strong></div>
+                <div><span>Volume</span><strong>{{ fmtVolume(q.volume) }}</strong></div>
+                <div><span>OI</span><strong>{{ fmtVolume(q.oi) }}</strong></div>
+              }
+              @if (pe.entryPrice != null) {
+                <div><span>Entry</span><strong>{{ fmt(pe.entryPrice) }}</strong></div>
+                <div><span>Target</span><strong>{{ fmt(pe.target) }}</strong></div>
+                <div>
+                  <span>P&amp;L</span>
+                  <strong [class.up]="(pe.unrealizedPnl ?? 0) >= 0" [class.down]="(pe.unrealizedPnl ?? 0) < 0">{{ fmtPnl(pe.unrealizedPnl) }}</strong>
+                </div>
+              }
+            </div>
           </div>
         }
       </div>
     }
+
+    <div class="workflow-panel">
+      <div class="cfg-section-label">Strategy Workflow</div>
+      <div class="workflow-strip">
+        @for (step of workflowSteps(); track step.label; let i = $index) {
+          <div class="workflow-step" [class.done]="step.done" [class.active-step]="step.active">
+            <div class="workflow-dot">{{ step.done ? '✓' : i + 1 }}</div>
+            <div class="workflow-label">{{ step.label }}</div>
+            <div class="workflow-sub">{{ step.sub }}</div>
+          </div>
+          @if (!$last) { <div class="workflow-connector" [class.done]="step.done"></div> }
+        }
+      </div>
+    </div>
+
+    <div class="run-grid">
+      <div class="run-col-main">
+        <div class="live-log-card">
+          <div class="cfg-section-label">Live Log</div>
+          @if (runState()?.events?.length) {
+            <div class="activity-log-list">
+              @for (e of runState()!.events!; track $index) {
+                <div class="activity-log-row" [class.log-warn]="e.type.includes('FAILED') || e.type.includes('ERROR')" [class.log-good]="e.type === 'ENTRY_CONFIRMED' || e.type === 'STARTED'">
+                  <span class="activity-log-time">{{ fmtEventTime(e.time) }}</span>
+                  <span class="activity-log-msg">{{ e.message }}</span>
+                </div>
+              }
+            </div>
+          } @else {
+            <p class="empty-msg">No events logged yet.</p>
+          }
+        </div>
+      </div>
+
+      <div class="run-col-side">
+        <div class="current-trade-card">
+          <div class="current-trade-header">
+            <span class="cfg-section-label">Current Trade</span>
+            @if (!cePositionOpen() && !pePositionOpen()) { <span class="tag-pill">No Active Trade</span> }
+          </div>
+          @if (cePositionOpen() || pePositionOpen()) {
+            @if (ceLeg(); as ce) {
+              @if (cePositionOpen()) {
+                <div class="current-trade-body">
+                  <span class="current-trade-side ce">CE {{ ce.strike }}</span>
+                  <div class="option-detail-grid">
+                    <div><span>Entry</span><strong>{{ fmt(ce.entryPrice) }}</strong></div>
+                    <div><span>LTP</span><strong>{{ fmt(ce.ltp) }}</strong></div>
+                    <div><span>Target</span><strong>{{ fmt(ce.target) }}</strong></div>
+                    <div><span>P&amp;L</span><strong [class.up]="(ce.unrealizedPnl ?? 0) >= 0" [class.down]="(ce.unrealizedPnl ?? 0) < 0">{{ fmtPnl(ce.unrealizedPnl) }}</strong></div>
+                  </div>
+                </div>
+              }
+            }
+            @if (peLeg(); as pe) {
+              @if (pePositionOpen()) {
+                <div class="current-trade-body">
+                  <span class="current-trade-side pe">PE {{ pe.strike }}</span>
+                  <div class="option-detail-grid">
+                    <div><span>Entry</span><strong>{{ fmt(pe.entryPrice) }}</strong></div>
+                    <div><span>LTP</span><strong>{{ fmt(pe.ltp) }}</strong></div>
+                    <div><span>Target</span><strong>{{ fmt(pe.target) }}</strong></div>
+                    <div><span>P&amp;L</span><strong [class.up]="(pe.unrealizedPnl ?? 0) >= 0" [class.down]="(pe.unrealizedPnl ?? 0) < 0">{{ fmtPnl(pe.unrealizedPnl) }}</strong></div>
+                  </div>
+                </div>
+              }
+            }
+          } @else {
+            <div class="no-active-trade">
+              <p>{{ statusHeadline() }}</p>
+            </div>
+          }
+        </div>
+
+        <div class="trade-controls-card">
+          <div class="cfg-section-label">Trade Controls</div>
+          <button class="btn-stop-strategy" (click)="stopStrategy()">&#9632; Stop Strategy</button>
+          <button class="btn-secondary btn-full" (click)="viewReport()">View Report</button>
+        </div>
+
+        <div class="trade-summary-card">
+          <div class="cfg-section-label">Trade Summary</div>
+          <div class="summary-row"><span>Trades Taken</span><strong>{{ runState()?.entryCount ?? 0 }} / {{ runState()?.maxTrades ?? maxTrades }}</strong></div>
+          <div class="summary-row"><span>Wins</span><strong class="up">{{ winsCount() }}</strong></div>
+          <div class="summary-row"><span>Losses</span><strong class="down">{{ lossesCount() }}</strong></div>
+          <div class="summary-row">
+            <span>Current P&amp;L</span>
+            <strong [class.up]="(runState()?.cumulativeRealizedPnl ?? 0) >= 0" [class.down]="(runState()?.cumulativeRealizedPnl ?? 0) < 0">{{ fmtPnl(runState()?.cumulativeRealizedPnl) }}</strong>
+          </div>
+          @if (runState()?.targetType === 'PNL') {
+            <div class="summary-row"><span>Session Target</span><strong>{{ fmtPnl(runState()?.pnlTarget) }}</strong></div>
+          } @else if (runState()?.maxDailyLoss) {
+            <div class="summary-row"><span>Max Daily Loss</span><strong>&#8377;{{ runState()?.maxDailyLoss }}</strong></div>
+          }
+          <div class="summary-row"><span>Status</span><strong>{{ statusHeadline() }}</strong></div>
+        </div>
+      </div>
+    </div>
 
     @if (exitInfo(); as x) {
       <div class="exit-msg" [class.target]="x.reason === 'Target hit'" [class.stoploss]="x.reason.includes('VWAP')">
@@ -304,130 +501,82 @@
     @if (latestOrderMsg()) {
       <div class="live-order-msg" [class.fail]="latestOrderMsg().includes('FAILED')">{{ latestOrderMsg() }}</div>
     }
+  }
 
-    @if ((ceLeg() && ceLeg()!.legStatus !== 'WATCHING' && ceLeg()!.legStatus !== 'NONE' && ceLeg()!.legStatus !== 'SKIPPED') || (peLeg() && peLeg()!.legStatus !== 'WATCHING' && peLeg()!.legStatus !== 'NONE' && peLeg()!.legStatus !== 'SKIPPED')) {
-      <div class="position-card">
-        @if (ceLeg(); as ce) {
-          @if (ce.legStatus !== 'WATCHING' && ce.legStatus !== 'NONE' && ce.legStatus !== 'SKIPPED') {
-            <div class="position-block">
-              <div class="side-title">CE Position — {{ legStatusLabel(ce.legStatus) }}</div>
-              <div class="position-grid">
-                <div><span>Entry</span><strong>{{ fmt(ce.entryPrice) }}</strong></div>
-                <div><span>Target</span><strong>{{ fmt(ce.target) }}</strong></div>
-                <div><span>LTP</span><strong>{{ fmt(ce.ltp) }}</strong></div>
-                <div>
-                  <span>P&amp;L</span>
-                  <strong [class.up]="(ce.unrealizedPnl ?? 0) >= 0" [class.down]="(ce.unrealizedPnl ?? 0) < 0">
-                    {{ fmtPnl(ce.unrealizedPnl) }}
-                  </strong>
-                </div>
-                <div class="row-break"><span>VWAP (live)</span><strong>{{ fmt(ce.vwap) }}</strong></div>
-                <div><span>VWAP at entry</span><strong>{{ fmt(ce.vwapAtEntry) }}</strong></div>
-              </div>
-            </div>
-          }
-        }
-        @if (peLeg(); as pe) {
-          @if (pe.legStatus !== 'WATCHING' && pe.legStatus !== 'NONE' && pe.legStatus !== 'SKIPPED') {
-            <div class="position-block">
-              <div class="side-title">PE Position — {{ legStatusLabel(pe.legStatus) }}</div>
-              <div class="position-grid">
-                <div><span>Entry</span><strong>{{ fmt(pe.entryPrice) }}</strong></div>
-                <div><span>Target</span><strong>{{ fmt(pe.target) }}</strong></div>
-                <div><span>LTP</span><strong>{{ fmt(pe.ltp) }}</strong></div>
-                <div>
-                  <span>P&amp;L</span>
-                  <strong [class.up]="(pe.unrealizedPnl ?? 0) >= 0" [class.down]="(pe.unrealizedPnl ?? 0) < 0">
-                    {{ fmtPnl(pe.unrealizedPnl) }}
-                  </strong>
-                </div>
-                <div class="row-break"><span>VWAP (live)</span><strong>{{ fmt(pe.vwap) }}</strong></div>
-                <div><span>VWAP at entry</span><strong>{{ fmt(pe.vwapAtEntry) }}</strong></div>
-              </div>
-            </div>
-          }
-        }
+  <div class="settings-card history-card">
+    <div class="settings-header" (click)="toggleHistory()">
+      <div>
+        <h2>Trade History</h2>
+        <p class="settings-sub">Past paper &amp; live trades for this strategy.</p>
       </div>
-    }
-
-    @if (errorMsg()) {
-      <div class="error-msg">{{ errorMsg() }}</div>
-    }
-
-    <div class="settings-card history-card">
-      <div class="settings-header" (click)="toggleHistory()">
-        <div>
-          <h2>Trade History</h2>
-          <p class="settings-sub">Past paper &amp; live trades for this strategy.</p>
-        </div>
-        <button class="btn-collapse" [class.open]="historyOpen()" (click)="toggleHistory(); $event.stopPropagation()">
-          {{ historyOpen() ? '▲ Hide' : '▼ Show' }}
-        </button>
-      </div>
-
-      @if (historyOpen()) {
-        <div class="mode-toggle history-mode-toggle">
-          <button [class.active]="historyMode() === 'PAPER'" (click)="setHistoryMode('PAPER')">Paper</button>
-          <button [class.active]="historyMode() === 'LIVE'" (click)="setHistoryMode('LIVE')">Live</button>
-        </div>
-
-        @if (historyLoading()) {
-          <p class="empty-msg">Loading history...</p>
-        } @else if (tradeHistory().length === 0) {
-          <p class="empty-msg">No {{ historyMode() === 'PAPER' ? 'paper' : 'live' }} trades recorded yet.</p>
-        } @else {
-          <div class="history-table-wrap">
-            <table class="history-table">
-              <thead>
-                <tr>
-                  <th>Entry Time</th><th>Mode</th><th>Side</th><th>Strike</th><th>Reversal</th>
-                  <th>Entry</th><th>Target</th><th>VWAP@Entry</th><th>Exit</th><th>Reason</th>
-                  <th>Max Profit</th><th>Max Drawdown</th><th>Realized P&amp;L</th><th>Status</th><th></th><th></th>
-                </tr>
-              </thead>
-              <tbody>
-                @for (t of tradeHistory(); track t.id) {
-                  <tr>
-                    <td>{{ t.entryTime | date:'d MMM, HH:mm' }}</td>
-                    <td>{{ t.mode }}</td>
-                    <td>{{ t.side }}</td>
-                    <td>{{ t.strike }}</td>
-                    <td>{{ t.reversal ? 'Yes' : '—' }}</td>
-                    <td>{{ fmt(t.entryPrice) }}</td>
-                    <td>{{ fmt(t.target) }}</td>
-                    <td>{{ t.vwapAtEntry != null ? fmt(t.vwapAtEntry) : '—' }}</td>
-                    <td>{{ t.exitPrice != null ? fmt(t.exitPrice) : '—' }}</td>
-                    <td>{{ t.exitReason || '—' }}</td>
-                    <td [class.up]="(t.maxProfit ?? 0) >= 0" [class.down]="(t.maxProfit ?? 0) < 0">{{ t.maxProfit != null ? fmtPnl(t.maxProfit) : '—' }}</td>
-                    <td [class.up]="(t.maxDrawdown ?? 0) >= 0" [class.down]="(t.maxDrawdown ?? 0) < 0">{{ t.maxDrawdown != null ? fmtPnl(t.maxDrawdown) : '—' }}</td>
-                    <td [class.up]="(t.realizedPnl ?? 0) >= 0" [class.down]="(t.realizedPnl ?? 0) < 0">{{ t.realizedPnl != null ? fmtPnl(t.realizedPnl) : '—' }}</td>
-                    <td><span class="history-status" [class.open-status]="t.status === 'OPEN'">{{ t.status }}</span></td>
-                    <td>
-                      <button class="btn-view-row" (click)="viewTradeLog(t)" title="View log">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                          <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                          <circle cx="12" cy="12" r="3"/>
-                        </svg>
-                      </button>
-                    </td>
-                    <td>
-                      <button class="btn-delete-row" (click)="deleteTrade(t.id)" title="Delete">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                          <polyline points="3 6 5 6 21 6"/>
-                          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                          <line x1="10" y1="11" x2="10" y2="17"/>
-                          <line x1="14" y1="11" x2="14" y2="17"/>
-                        </svg>
-                      </button>
-                    </td>
-                  </tr>
-                }
-              </tbody>
-            </table>
-          </div>
-        }
-      }
+      <button class="btn-collapse" [class.open]="historyOpen()" (click)="toggleHistory(); $event.stopPropagation()">
+        {{ historyOpen() ? '▲ Hide' : '▼ Show' }}
+      </button>
     </div>
+
+    @if (historyOpen()) {
+      <div class="mode-toggle history-mode-toggle">
+        <button [class.active]="historyMode() === 'PAPER'" (click)="setHistoryMode('PAPER')">Paper</button>
+        <button [class.active]="historyMode() === 'LIVE'" (click)="setHistoryMode('LIVE')">Live</button>
+      </div>
+
+      @if (historyLoading()) {
+        <p class="empty-msg">Loading history...</p>
+      } @else if (tradeHistory().length === 0) {
+        <p class="empty-msg">No {{ historyMode() === 'PAPER' ? 'paper' : 'live' }} trades recorded yet.</p>
+      } @else {
+        <div class="history-table-wrap">
+          <table class="history-table">
+            <thead>
+              <tr>
+                <th>Entry Time</th><th>Mode</th><th>Side</th><th>Strike</th><th>Reversal</th>
+                <th>Entry</th><th>Target</th><th>VWAP@Entry</th><th>Exit</th><th>Reason</th>
+                <th>Max Profit</th><th>Max Drawdown</th><th>Realized P&amp;L</th><th>Status</th><th></th><th></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (t of tradeHistory(); track t.id) {
+                <tr>
+                  <td>{{ t.entryTime | date:'d MMM, HH:mm' }}</td>
+                  <td>{{ t.mode }}</td>
+                  <td>{{ t.side }}</td>
+                  <td>{{ t.strike }}</td>
+                  <td>{{ t.reversal ? 'Yes' : '—' }}</td>
+                  <td>{{ fmt(t.entryPrice) }}</td>
+                  <td>{{ fmt(t.target) }}</td>
+                  <td>{{ t.vwapAtEntry != null ? fmt(t.vwapAtEntry) : '—' }}</td>
+                  <td>{{ t.exitPrice != null ? fmt(t.exitPrice) : '—' }}</td>
+                  <td>{{ t.exitReason || '—' }}</td>
+                  <td [class.up]="(t.maxProfit ?? 0) >= 0" [class.down]="(t.maxProfit ?? 0) < 0">{{ t.maxProfit != null ? fmtPnl(t.maxProfit) : '—' }}</td>
+                  <td [class.up]="(t.maxDrawdown ?? 0) >= 0" [class.down]="(t.maxDrawdown ?? 0) < 0">{{ t.maxDrawdown != null ? fmtPnl(t.maxDrawdown) : '—' }}</td>
+                  <td [class.up]="(t.realizedPnl ?? 0) >= 0" [class.down]="(t.realizedPnl ?? 0) < 0">{{ t.realizedPnl != null ? fmtPnl(t.realizedPnl) : '—' }}</td>
+                  <td><span class="history-status" [class.open-status]="t.status === 'OPEN'">{{ t.status }}</span></td>
+                  <td>
+                    <button class="btn-view-row" (click)="viewTradeLog(t)" title="View log">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                        <circle cx="12" cy="12" r="3"/>
+                      </svg>
+                    </button>
+                  </td>
+                  <td>
+                    <button class="btn-delete-row" (click)="deleteTrade(t.id)" title="Delete">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <polyline points="3 6 5 6 21 6"/>
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                        <line x1="10" y1="11" x2="10" y2="17"/>
+                        <line x1="14" y1="11" x2="14" y2="17"/>
+                      </svg>
+                    </button>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+    }
+  </div>
 
   </div>
 
@@ -455,6 +604,35 @@
               }
             </div>
           }
+        </div>
+      </div>
+    </div>
+  }
+
+  @if (showSavePresetModal()) {
+    <div class="overlay" (click)="closeSavePresetModal()">
+      <div class="log-modal save-preset-modal" (click)="$event.stopPropagation()">
+        <div class="log-modal-header">
+          <h3>Save Preset</h3>
+          <button class="op-close" (click)="closeSavePresetModal()">&#10005;</button>
+        </div>
+        <div class="log-modal-body">
+          <div class="form-row">
+            <label for="newPresetName">Preset name</label>
+            <input
+              id="newPresetName"
+              type="text"
+              class="select-input"
+              [(ngModel)]="newPresetName"
+              placeholder="e.g. Morning VWAP 150-250"
+              (keyup.enter)="confirmSavePreset()"
+            />
+          </div>
+          @if (errorMsg()) { <p class="error-msg">{{ errorMsg() }}</p> }
+          <div class="preset-card-actions">
+            <button class="btn-secondary" (click)="confirmSavePreset()" [disabled]="!newPresetName.trim()">Save</button>
+            <button class="btn-secondary" (click)="closeSavePresetModal()">Cancel</button>
+          </div>
         </div>
       </div>
     </div>

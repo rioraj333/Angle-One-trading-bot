@@ -542,6 +542,10 @@
                             <input type="number" class="op-input" [(ngModel)]="vwapEditForm.pnlTrailingStep" min="0" placeholder="Blank = hard stop" />
                           </div>
                         }
+                        <div class="op-field">
+                          <label>Max daily loss (&#8377;, optional)</label>
+                          <input type="number" class="op-input" [(ngModel)]="vwapEditForm.maxDailyLoss" min="1" placeholder="Leave blank for no cap" />
+                        </div>
                       </div>
                       @if (vwapEditError()) { <p class="error-msg">{{ vwapEditError() }}</p> }
                       <div class="preset-card-actions">
@@ -561,6 +565,7 @@
                         } @else {
                           target {{ p.targetPoints }}pts
                         }
+                        @if (p.maxDailyLoss) { &middot; max loss &#8377;{{ p.maxDailyLoss }} }
                       </span>
                     </div>
                     <div class="preset-card-actions">

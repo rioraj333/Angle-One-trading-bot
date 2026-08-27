@@ -10,7 +10,16 @@ import { VwapBreakoutLegPick, VwapBreakoutService, VwapBreakoutStartRequest, Vwa
 import { VwapBreakoutPreset, VwapBreakoutPresetService } from '../../services/vwap-breakout-preset.service';
 
 const INDEX_META = { exchange: 'NSE', symbol: 'Nifty 50', token: '99926000' };
-const DEFAULT_PREMIUM_RANGE = { from: 150, to: 250 };
+const DEFAULT_PREMIUM_RANGE = { from: 150, to: 200 };
+const SPARKLINE_MAX_POINTS = 40;
+
+export interface QuoteSnap {
+  ltp: number;
+  netChange: number;
+  percentChange: number;
+  volume: number;
+  oi: number;
+}
 
 export interface PremiumMatch {
   strike: number;
@@ -49,17 +58,32 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
   targetType: 'POINTS' | 'PNL' = 'POINTS';
   pnlTarget: number | null = 5000;
   pnlTrailingStep: number | null = null;
-  maxTrades = 3;
-  entryWindowStart = '09:25';
+  /** Optional safety net, independent of targetType/maxTrades - stops the whole session the
+   *  instant cumulative realized loss for the day reaches this many rupees. Guards against a
+   *  choppy day burning through every configured trade in a string of small VWAP-cross losses. */
+  maxDailyLoss: number | null = null;
+  maxTrades = 5;
+  entryWindowStart = '09:15';
   entryCutoff = '15:00';
   exitMode: 'VWAP_CROSS' | 'TRAILING_SL' = 'VWAP_CROSS';
+  /** MANUAL (default) - pick a CE/PE strike from the searched list yourself. AUTO - the
+   *  highest-premium strike in range on each side is picked automatically the moment
+   *  Search Premium returns, same "highest premium in range" rule Breakout925's AUTO
+   *  preset mode uses. Purely a same-page convenience - unlike Breakout925, there's no
+   *  scheduled/overnight auto-deploy here, you still click Start yourself. */
+  selectionMode: 'MANUAL' | 'AUTO' = 'MANUAL';
 
   newPresetName = '';
+  showSavePresetModal = signal(false);
   presets = signal<VwapBreakoutPreset[]>([]);
 
   errorMsg = signal('');
 
   indexLtp = signal<number | null>(null);
+  indexQuote = signal<QuoteSnap | null>(null);
+  indexSparkline = signal<number[]>([]);
+  ceQuote = signal<QuoteSnap | null>(null);
+  peQuote = signal<QuoteSnap | null>(null);
 
   premiumFrom: number | null = DEFAULT_PREMIUM_RANGE.from;
   premiumTo: number | null = DEFAULT_PREMIUM_RANGE.to;
@@ -87,7 +111,15 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
   ceLiveLtp = signal<number | null>(null);
   peLiveLtp = signal<number | null>(null);
 
-  deployedFromPresetId: number | null = null;
+  /** The preset currently loaded into the form (via the dropdown, or navigated in from
+   *  the Dashboard's Deploy button) - null means "custom", not tied to any saved preset.
+   *  Drives whether the header shows Save (new) or Update/Delete (existing). */
+  deployedFromPresetId = signal<number | null>(null);
+  selectedPreset = computed(() => {
+    const id = this.deployedFromPresetId();
+    return id != null ? this.presets().find((p) => p.id === id) ?? null : null;
+  });
+  presetActionMsg = signal('');
 
   runState = signal<VwapBreakoutState | null>(null);
   running = computed(() => this.runState()?.active === true);
@@ -120,9 +152,99 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
   viewingEventsLoading = signal(false);
   viewingEventsError = signal('');
 
+  /** Live wall-clock for the running-view header - purely cosmetic. */
+  currentTime = signal(new Date());
+
+  /** This run's own trades only (tradeHistory holds every past trade for the selected
+   *  mode, so filter down to the currently active run for the Trades Today / Trade
+   *  Summary panels). */
+  todaysRunTrades = computed(() => {
+    const runId = this.runState()?.id;
+    if (runId == null) return [];
+    return this.tradeHistory().filter((t) => t.runId === runId);
+  });
+  private closedRunTrades = computed(() => this.todaysRunTrades().filter((t) => t.status !== 'OPEN'));
+  winsCount = computed(() => this.closedRunTrades().filter((t) => (t.realizedPnl ?? 0) > 0).length);
+  lossesCount = computed(() => this.closedRunTrades().filter((t) => (t.realizedPnl ?? 0) <= 0).length);
+  winRatePct = computed(() => {
+    const closed = this.closedRunTrades().length;
+    return closed > 0 ? (this.winsCount() / closed) * 100 : 0;
+  });
+
+  /** How far the session is toward whatever stops it - null when there's nothing
+   *  meaningful to show a bar for (Points mode with no max daily loss configured). */
+  sessionProgressPct = computed(() => {
+    const s = this.runState();
+    if (!s?.active) return null;
+    const pnl = s.cumulativeRealizedPnl ?? 0;
+    if (s.targetType === 'PNL' && s.pnlTarget) {
+      return Math.max(0, Math.min(100, (pnl / s.pnlTarget) * 100));
+    }
+    if (s.maxDailyLoss) {
+      return Math.max(0, Math.min(100, (-pnl / s.maxDailyLoss) * 100));
+    }
+    return null;
+  });
+
+  /** Plain-language status line for the STATUS stat card and the Current Trade panel. */
+  statusHeadline = computed(() => {
+    const s = this.runState();
+    if (!s?.active) return '';
+    if (s.status === 'DONE') return 'Session complete for the day.';
+    if (this.cePositionOpen() || this.pePositionOpen()) return 'In position - watching for target or VWAP-cross exit.';
+    return 'Monitoring - waiting for breakout above VWAP.';
+  });
+
+  /** Strategy Workflow strip - both views use this, but most steps only mean something
+   *  once a run exists; the config view shows them all as pending. */
+  workflowSteps = computed(() => {
+    const s = this.runState();
+    const active = s?.active === true;
+    const vwapMarked = active && ((this.ceLeg()?.vwap ?? null) != null || (this.peLeg()?.vwap ?? null) != null);
+    const everBrokeOut = active && (this.cePositionOpen() || this.pePositionOpen() || !!s?.lastExitSide);
+    const entryWindowOpen = active && this.currentTime() >= this.parseHhmmToday(s!.entryWindowStart ?? this.entryWindowStart);
+    const done = active && s?.status === 'DONE';
+    return [
+      { label: 'Market Open', sub: '9:15 AM', done: active },
+      { label: 'Entry Window', sub: (s?.entryWindowStart ?? this.entryWindowStart), done: entryWindowOpen },
+      { label: 'Premium Selected', sub: this.strikeSummary(), done: active },
+      { label: 'VWAP Marked', sub: 'CE & PE', done: vwapMarked },
+      { label: 'Monitoring', sub: 'Breakout watch', done: everBrokeOut, active: active && !everBrokeOut && !done },
+      { label: 'Target / Exit', sub: 'Target or SL', done: done },
+    ];
+  });
+
+  private strikeSummary(): string {
+    const ce = this.selectedCe();
+    const pe = this.selectedPe();
+    if (ce && pe) return `${ce.strike} / ${pe.strike}`;
+    if (ce) return `${ce.strike} CE`;
+    if (pe) return `${pe.strike} PE`;
+    return '—';
+  }
+
+  private parseHhmmToday(hhmm: string): Date {
+    const [h, m] = hhmm.split(':').map(Number);
+    const d = new Date();
+    d.setHours(h, m, 0, 0);
+    return d;
+  }
+
+  /** OTM/ITM tag for a leg's option chip, computed against the live index spot. */
+  moneyness(side: 'CE' | 'PE', strike: number | undefined): string {
+    const spot = this.indexLtp();
+    if (spot == null || strike == null) return '';
+    if (side === 'CE') return strike > spot ? 'OTM' : strike < spot ? 'ITM' : 'ATM';
+    return strike < spot ? 'OTM' : strike > spot ? 'ITM' : 'ATM';
+  }
+
+  private lastHistoryLoadEntryCount: number | null = null;
+
   private indexPollSub?: Subscription;
+  private legQuoteSub?: Subscription;
   private stateSub?: Subscription;
   private previewLtpSub?: Subscription;
+  private clockSub?: Subscription;
   private platformId = inject(PLATFORM_ID);
 
   constructor(
@@ -136,6 +258,10 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     if (!isPlatformBrowser(this.platformId)) return;
 
+    this.clockSub = interval(1000)
+      .pipe(startWith(0))
+      .subscribe(() => this.currentTime.set(new Date()));
+
     this.vwapBreakoutPresetService.list().subscribe({
       next: (list) => {
         this.presets.set(list);
@@ -145,16 +271,48 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
       error: () => {},
     });
 
+    // FULL quote (not just LTP) so the running view can show real net change/%/volume/OI
+    // alongside the spot price - same broker endpoint, just the richer mode.
     this.indexPollSub = interval(1000)
       .pipe(
         startWith(0),
-        switchMap(() => this.tradingService.getLTP(INDEX_META.exchange, INDEX_META.symbol, INDEX_META.token))
+        switchMap(() => this.tradingService.getQuote('FULL', { [INDEX_META.exchange]: [INDEX_META.token] }).pipe(catchError(() => of(null))))
       )
-      .subscribe({
-        next: (r) => {
-          if (r?.status && r.data?.ltp != null) this.indexLtp.set(Number(r.data.ltp));
-        },
-        error: () => {},
+      .subscribe((r) => {
+        const entry = r?.status ? r.data?.fetched?.[0] : null;
+        if (!entry) return;
+        const snap = this.parseQuoteEntry(entry);
+        this.indexLtp.set(snap.ltp);
+        this.indexQuote.set(snap);
+        this.indexSparkline.update((arr) => {
+          const next = [...arr, snap.ltp];
+          return next.length > SPARKLINE_MAX_POINTS ? next.slice(next.length - SPARKLINE_MAX_POINTS) : next;
+        });
+      });
+
+    // Same FULL quote for whichever CE/PE legs are actually in the current run - only
+    // while running, since that's the only view that shows volume/OI/change.
+    this.legQuoteSub = interval(1000)
+      .pipe(
+        startWith(0),
+        switchMap(() => {
+          if (!this.running()) return of(null);
+          const exch = this.runState()?.exchSeg ?? this.resultsExchSeg();
+          const tokens = [this.ceLeg()?.token, this.peLeg()?.token].filter((t): t is string => !!t);
+          if (tokens.length === 0) return of(null);
+          return this.tradingService.getQuote('FULL', { [exch]: tokens }).pipe(catchError(() => of(null)));
+        })
+      )
+      .subscribe((r) => {
+        if (!r?.status) return;
+        const rows: any[] = r.data?.fetched ?? [];
+        const ceToken = this.ceLeg()?.token;
+        const peToken = this.peLeg()?.token;
+        for (const row of rows) {
+          const snap = this.parseQuoteEntry(row);
+          if (row.symbolToken === ceToken) this.ceQuote.set(snap);
+          if (row.symbolToken === peToken) this.peQuote.set(snap);
+        }
       });
 
     this.stateSub = interval(1000)
@@ -171,19 +329,41 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
           if (state.targetType) this.targetType = state.targetType;
           if (state.pnlTarget != null) this.pnlTarget = state.pnlTarget;
           if (state.pnlTrailingStep !== undefined) this.pnlTrailingStep = state.pnlTrailingStep ?? null;
+          if (state.maxDailyLoss !== undefined) this.maxDailyLoss = state.maxDailyLoss ?? null;
           if (state.maxTrades != null) this.maxTrades = state.maxTrades;
           if (state.entryWindowStart) this.entryWindowStart = state.entryWindowStart;
           if (state.entryCutoff) this.entryCutoff = state.entryCutoff;
           if (state.exitMode) this.exitMode = state.exitMode as 'VWAP_CROSS' | 'TRAILING_SL';
           if (state.mode) this.mode = state.mode;
+
+          // Keep the Trades Today / Trade Summary panels current as trades close out,
+          // without hammering the endpoint every second - only reload when the count
+          // of trades taken this run actually changes (or on the very first tick).
+          if (state.entryCount !== this.lastHistoryLoadEntryCount) {
+            this.lastHistoryLoadEntryCount = state.entryCount ?? 0;
+            this.historyMode.set(state.mode ?? this.historyMode());
+            this.loadHistory();
+          }
         }
       });
   }
 
   ngOnDestroy(): void {
     this.indexPollSub?.unsubscribe();
+    this.legQuoteSub?.unsubscribe();
     this.stateSub?.unsubscribe();
     this.previewLtpSub?.unsubscribe();
+    this.clockSub?.unsubscribe();
+  }
+
+  private parseQuoteEntry(entry: any): QuoteSnap {
+    return {
+      ltp: Number(entry?.ltp ?? 0),
+      netChange: Number(entry?.netChange ?? 0),
+      percentChange: Number(entry?.percentChange ?? 0),
+      volume: Number(entry?.tradeVolume ?? 0),
+      oi: Number(entry?.opnInterest ?? 0),
+    };
   }
 
   toggleSettings(): void {
@@ -208,11 +388,21 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
           this.peMatches.set([]);
           return;
         }
-        this.ceMatches.set((r.ce || []).slice().sort((a: PremiumMatch, b: PremiumMatch) => b.premium - a.premium));
-        this.peMatches.set((r.pe || []).slice().sort((a: PremiumMatch, b: PremiumMatch) => b.premium - a.premium));
+        const ce = (r.ce || []).slice().sort((a: PremiumMatch, b: PremiumMatch) => b.premium - a.premium);
+        const pe = (r.pe || []).slice().sort((a: PremiumMatch, b: PremiumMatch) => b.premium - a.premium);
+        this.ceMatches.set(ce);
+        this.peMatches.set(pe);
         this.resultsExchSeg.set(r.exchSeg || 'NFO');
         this.searchedFrom.set(this.premiumFrom);
         this.searchedTo.set(this.premiumTo);
+
+        // AUTO: pick the highest-premium strike in range on each side automatically -
+        // same rule Breakout925's AUTO preset mode uses. You can still click a different
+        // row afterwards to override it.
+        if (this.selectionMode === 'AUTO') {
+          if (ce.length > 0) this.selectCe(ce[0]);
+          if (pe.length > 0) this.selectPe(pe[0]);
+        }
       },
       error: (err) => {
         this.premiumSearching.set(false);
@@ -296,6 +486,8 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
 
   startStrategy(): void {
     this.errorMsg.set('');
+    this.ceQuote.set(null);
+    this.peQuote.set(null);
     const ce = this.selectedCe();
     const pe = this.selectedPe();
     if (!ce && !pe) {
@@ -318,6 +510,10 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
       this.errorMsg.set('P&L target (₹) must be greater than 0.');
       return;
     }
+    if (this.maxDailyLoss != null && this.maxDailyLoss <= 0) {
+      this.errorMsg.set('Max daily loss (₹) must be greater than 0.');
+      return;
+    }
 
     const toPick = (m: PremiumMatch | null): VwapBreakoutLegPick | null =>
       m ? { strike: m.strike, symbol: m.symbol, token: m.token } : null;
@@ -330,6 +526,7 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
       targetType: this.targetType,
       pnlTarget: this.targetType === 'PNL' ? this.pnlTarget : null,
       pnlTrailingStep: this.targetType === 'PNL' ? this.pnlTrailingStep : null,
+      maxDailyLoss: this.maxDailyLoss,
       maxTrades: this.maxTrades,
       entryWindowStart: this.entryWindowStart,
       entryCutoff: this.entryCutoff,
@@ -337,7 +534,7 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
       mode: this.mode,
       ce: toPick(ce),
       pe: toPick(pe),
-      presetId: this.deployedFromPresetId,
+      presetId: this.deployedFromPresetId(),
     };
 
     this.vwapBreakoutService.start(request).subscribe({
@@ -374,6 +571,19 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
     const next = !this.historyOpen();
     this.historyOpen.set(next);
     if (next) this.loadHistory();
+  }
+
+  /** "View Report" button on the running page - opens (and scrolls to) the same Trade
+   *  History card the config page has, rather than a separate, fake reporting screen. */
+  viewReport(): void {
+    if (!this.historyOpen()) this.toggleHistory();
+    if (isPlatformBrowser(this.platformId)) {
+      setTimeout(() => document.querySelector('.history-card')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+    }
+  }
+
+  fmtClock(d: Date): string {
+    return d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
   }
 
   loadHistory(): void {
@@ -431,14 +641,17 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
   }
 
   applyPreset(idStr: string): void {
-    if (!idStr) return;
+    if (!idStr) {
+      this.deployedFromPresetId.set(null); // "Custom..." picked - back to Save mode
+      return;
+    }
     this.applyPresetById(Number(idStr), false);
   }
 
   private applyPresetById(id: number, autoSearch: boolean): void {
     const preset = this.presets().find((p) => p.id === id);
     if (!preset) return;
-    this.deployedFromPresetId = id;
+    this.deployedFromPresetId.set(id);
     this.premiumFrom = preset.premiumFrom;
     this.premiumTo = preset.premiumTo;
     this.quantity = preset.quantity;
@@ -446,6 +659,7 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
     this.targetType = preset.targetType;
     this.pnlTarget = preset.pnlTarget ?? 5000;
     this.pnlTrailingStep = preset.pnlTrailingStep ?? null;
+    this.maxDailyLoss = preset.maxDailyLoss ?? null;
     this.maxTrades = preset.maxTrades;
     this.entryWindowStart = preset.entryWindowStart;
     this.entryCutoff = preset.entryCutoff;
@@ -454,37 +668,93 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
     if (autoSearch) this.searchPremium();
   }
 
-  saveCurrentAsPreset(): void {
+  openSavePresetModal(): void {
+    this.errorMsg.set('');
+    this.newPresetName = '';
+    this.showSavePresetModal.set(true);
+  }
+
+  closeSavePresetModal(): void {
+    this.showSavePresetModal.set(false);
+  }
+
+  private buildPresetRequest(name: string) {
+    return {
+      name,
+      indexName: 'NIFTY',
+      premiumFrom: this.premiumFrom!,
+      premiumTo: this.premiumTo!,
+      quantity: this.quantity,
+      targetPoints: this.targetPoints,
+      targetType: this.targetType,
+      pnlTarget: this.targetType === 'PNL' ? this.pnlTarget : null,
+      pnlTrailingStep: this.targetType === 'PNL' ? this.pnlTrailingStep : null,
+      maxDailyLoss: this.maxDailyLoss,
+      maxTrades: this.maxTrades,
+      entryWindowStart: this.entryWindowStart,
+      entryCutoff: this.entryCutoff,
+      exitMode: this.exitMode,
+      mode: this.mode,
+    };
+  }
+
+  private flashPresetActionMsg(msg: string): void {
+    this.presetActionMsg.set(msg);
+    setTimeout(() => this.presetActionMsg.set(''), 2500);
+  }
+
+  confirmSavePreset(): void {
     this.errorMsg.set('');
     if (!this.newPresetName.trim()) return;
     if (this.premiumFrom == null || this.premiumTo == null) {
       this.errorMsg.set('Search a premium range before saving a preset.');
       return;
     }
-    this.vwapBreakoutPresetService
-      .save({
-        name: this.newPresetName.trim(),
-        indexName: 'NIFTY',
-        premiumFrom: this.premiumFrom,
-        premiumTo: this.premiumTo,
-        quantity: this.quantity,
-        targetPoints: this.targetPoints,
-        targetType: this.targetType,
-        pnlTarget: this.targetType === 'PNL' ? this.pnlTarget : null,
-        pnlTrailingStep: this.targetType === 'PNL' ? this.pnlTrailingStep : null,
-        maxTrades: this.maxTrades,
-        entryWindowStart: this.entryWindowStart,
-        entryCutoff: this.entryCutoff,
-        exitMode: this.exitMode,
-        mode: this.mode,
-      })
-      .subscribe({
-        next: (preset) => {
-          this.presets.set([preset, ...this.presets()]);
-          this.newPresetName = '';
-        },
-        error: (err) => this.errorMsg.set(err.error?.message || 'Failed to save preset.'),
-      });
+    this.vwapBreakoutPresetService.save(this.buildPresetRequest(this.newPresetName.trim())).subscribe({
+      next: (preset) => {
+        this.presets.set([preset, ...this.presets()]);
+        this.deployedFromPresetId.set(preset.id);
+        this.newPresetName = '';
+        this.showSavePresetModal.set(false);
+        this.flashPresetActionMsg('Preset saved.');
+      },
+      error: (err) => this.errorMsg.set(err.error?.message || 'Failed to save preset.'),
+    });
+  }
+
+  /** Header "Update" button - only shown once a saved preset is loaded (deployedFromPresetId
+   *  set). Pushes the current form values back onto that same preset, keeping its name. */
+  updatePreset(): void {
+    this.errorMsg.set('');
+    const preset = this.selectedPreset();
+    if (!preset) return;
+    if (this.premiumFrom == null || this.premiumTo == null) {
+      this.errorMsg.set('Search a premium range before updating this preset.');
+      return;
+    }
+    this.vwapBreakoutPresetService.update(preset.id, this.buildPresetRequest(preset.name)).subscribe({
+      next: (updated) => {
+        this.presets.set(this.presets().map((p) => (p.id === updated.id ? updated : p)));
+        this.flashPresetActionMsg('Preset updated.');
+      },
+      error: (err) => this.errorMsg.set(err.error?.message || 'Failed to update preset.'),
+    });
+  }
+
+  /** Header "Delete" button - removes the currently loaded preset and drops back to
+   *  Custom/Save mode. */
+  deletePreset(): void {
+    const preset = this.selectedPreset();
+    if (!preset) return;
+    if (!confirm(`Delete preset "${preset.name}"? This cannot be undone.`)) return;
+    this.vwapBreakoutPresetService.delete(preset.id).subscribe({
+      next: () => {
+        this.presets.set(this.presets().filter((p) => p.id !== preset.id));
+        this.deployedFromPresetId.set(null);
+        this.flashPresetActionMsg('Preset deleted.');
+      },
+      error: (err) => this.errorMsg.set(err.error?.message || 'Failed to delete preset.'),
+    });
   }
 
   fmt(n: number | undefined | null): string {
@@ -500,6 +770,39 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
   fmtPnl(n: number | undefined | null): string {
     if (n === undefined || n === null) return '—';
     return (n >= 0 ? '+₹' : '-₹') + Math.abs(n).toFixed(2);
+  }
+
+  fmtChange(q: QuoteSnap | null): string {
+    if (!q) return '—';
+    const sign = q.netChange >= 0 ? '+' : '';
+    return `${sign}${q.netChange.toFixed(2)} (${sign}${q.percentChange.toFixed(2)}%)`;
+  }
+
+  fmtVolume(n: number | undefined): string {
+    if (!n) return '—';
+    if (n >= 1e7) return (n / 1e7).toFixed(2) + 'Cr';
+    if (n >= 1e5) return (n / 1e5).toFixed(2) + 'L';
+    if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+    return String(n);
+  }
+
+  /** Simple inline SVG sparkline (last ~40 spot samples) - no charting library, just a
+   *  normalized polyline over a fixed viewBox. */
+  sparklinePoints(): string {
+    const data = this.indexSparkline();
+    if (data.length < 2) return '';
+    const min = Math.min(...data);
+    const max = Math.max(...data);
+    const range = max - min || 1;
+    const w = 100;
+    const h = 28;
+    return data
+      .map((v, i) => {
+        const x = (i / (data.length - 1)) * w;
+        const y = h - ((v - min) / range) * h;
+        return `${x.toFixed(1)},${y.toFixed(1)}`;
+      })
+      .join(' ');
   }
 
   legStatusLabel(status: string | undefined): string {

@@ -7,7 +7,7 @@ import { forkJoin, interval, of, Subscription } from 'rxjs';
 import { catchError, startWith, switchMap } from 'rxjs/operators';
 import { AuthService } from '../services/auth.service';
 import { TradingService } from '../services/trading.service';
-import { getMarketStatus, MarketStatus } from '../utils/market-hours';
+import { getMarketStatus, isMarketOpen, MarketStatus } from '../utils/market-hours';
 import { Breakout925DeployStatus, Breakout925Preset, Breakout925PresetService, SaveBreakout925PresetRequest } from '../services/breakout925-preset.service';
 import { Breakout925Service } from '../services/breakout925.service';
 import { SaveVwapBreakoutPresetRequest, VwapBreakoutPreset, VwapBreakoutPresetService } from '../services/vwap-breakout-preset.service';
@@ -35,6 +35,7 @@ interface VwapPresetEditForm {
   targetType: 'POINTS' | 'PNL';
   pnlTarget: number | null;
   pnlTrailingStep: number | null;
+  maxDailyLoss: number | null;
   maxTrades: number;
   entryWindowStart: string;
   entryCutoff: string;
@@ -187,9 +188,18 @@ export class DashboardComponent implements OnInit, OnDestroy {
         this.marketStatus.set(getMarketStatus());
       });
 
+    // Keep polling positions/orders/holdings while the market's open, but stop once it
+    // closes - they can't change after hours, and leaving a browser tab open overnight
+    // was tripping Angel One's "exceeding access rate" 403 every 30s, all day, which
+    // shares the same account-wide throttle that VWAP preview's candle-data calls use.
+    let firstLoad = true;
     this.refreshSub = interval(30_000)
       .pipe(startWith(0))
-      .subscribe(() => this.loadAllData());
+      .subscribe(() => {
+        if (!firstLoad && !isMarketOpen()) return;
+        firstLoad = false;
+        this.loadAllData();
+      });
 
     // Polls independently of which section is open, so a running strategy shows up
     // on the Home page (and anywhere else) without having to visit Strategies first.
@@ -417,6 +427,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
       targetType: preset.targetType,
       pnlTarget: preset.pnlTarget ?? 5000,
       pnlTrailingStep: preset.pnlTrailingStep ?? null,
+      maxDailyLoss: preset.maxDailyLoss ?? null,
       maxTrades: preset.maxTrades,
       entryWindowStart: preset.entryWindowStart,
       entryCutoff: preset.entryCutoff,
@@ -453,6 +464,10 @@ export class DashboardComponent implements OnInit, OnDestroy {
       this.vwapEditError.set('P&L target (₹) must be greater than 0.');
       return;
     }
+    if (this.vwapEditForm.maxDailyLoss != null && this.vwapEditForm.maxDailyLoss <= 0) {
+      this.vwapEditError.set('Max daily loss (₹) must be greater than 0.');
+      return;
+    }
 
     this.vwapEditSaving.set(true);
     const request: SaveVwapBreakoutPresetRequest = {
@@ -476,9 +491,10 @@ export class DashboardComponent implements OnInit, OnDestroy {
 
   private blankVwapEditForm(): VwapPresetEditForm {
     return {
-      name: '', indexName: 'NIFTY', premiumFrom: 150, premiumTo: 250, quantity: 5,
+      name: '', indexName: 'NIFTY', premiumFrom: 150, premiumTo: 200, quantity: 5,
       targetPoints: 15, targetType: 'POINTS', pnlTarget: 5000, pnlTrailingStep: null,
-      maxTrades: 3, entryWindowStart: '09:25', entryCutoff: '15:00', mode: 'PAPER',
+      maxDailyLoss: null,
+      maxTrades: 5, entryWindowStart: '09:15', entryCutoff: '15:00', mode: 'PAPER',
     };
   }
 
