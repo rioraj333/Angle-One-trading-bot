@@ -46,6 +46,9 @@ public class VwapBreakoutPreset {
     private Double pnlTarget;
     private Double pnlTrailingStep;
 
+    /** Optional safety net, independent of targetType/maxTrades - see VwapBreakoutRun. */
+    private Double maxDailyLoss;
+
     @Column(nullable = false)
     private Integer maxTrades;
 
@@ -83,6 +86,8 @@ public class VwapBreakoutPreset {
     public void setPnlTarget(Double pnlTarget) { this.pnlTarget = pnlTarget; }
     public Double getPnlTrailingStep() { return pnlTrailingStep; }
     public void setPnlTrailingStep(Double pnlTrailingStep) { this.pnlTrailingStep = pnlTrailingStep; }
+    public Double getMaxDailyLoss() { return maxDailyLoss; }
+    public void setMaxDailyLoss(Double maxDailyLoss) { this.maxDailyLoss = maxDailyLoss; }
     public Integer getMaxTrades() { return maxTrades; }
     public void setMaxTrades(Integer maxTrades) { this.maxTrades = maxTrades; }
     public String getEntryWindowStart() { return entryWindowStart; }

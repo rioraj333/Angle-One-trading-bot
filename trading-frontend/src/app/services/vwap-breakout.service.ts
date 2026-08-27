@@ -19,6 +19,9 @@ export interface VwapBreakoutStartRequest {
   pnlTarget?: number | null;
   /** Optional trailing step in rupees once pnlTarget is first reached - omit/null for a hard stop. */
   pnlTrailingStep?: number | null;
+  /** Optional safety net, independent of targetType/maxTrades: stops the whole session the
+   *  instant cumulative realized loss for the day reaches this many rupees. */
+  maxDailyLoss?: number | null;
   maxTrades: number;
   entryWindowStart: string;
   entryCutoff: string;
@@ -31,6 +34,7 @@ export interface VwapBreakoutStartRequest {
 
 export interface VwapBreakoutLegState {
   symbol: string;
+  token?: string;
   strike: number;
   ltp: number | null;
   vwap: number | null;
@@ -63,6 +67,7 @@ export interface VwapBreakoutState {
   targetType?: 'POINTS' | 'PNL';
   pnlTarget?: number | null;
   pnlTrailingStep?: number | null;
+  maxDailyLoss?: number | null;
   cumulativeRealizedPnl?: number;
   pnlTrailingActive?: boolean;
   peakCumulativePnl?: number | null;

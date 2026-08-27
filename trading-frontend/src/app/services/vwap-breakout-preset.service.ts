@@ -13,6 +13,7 @@ export interface VwapBreakoutPreset {
   targetType: 'POINTS' | 'PNL';
   pnlTarget?: number | null;
   pnlTrailingStep?: number | null;
+  maxDailyLoss?: number | null;
   maxTrades: number;
   entryWindowStart: string;
   entryCutoff: string;
@@ -31,6 +32,7 @@ export interface SaveVwapBreakoutPresetRequest {
   targetType: 'POINTS' | 'PNL';
   pnlTarget?: number | null;
   pnlTrailingStep?: number | null;
+  maxDailyLoss?: number | null;
   maxTrades: number;
   entryWindowStart: string;
   entryCutoff: string;

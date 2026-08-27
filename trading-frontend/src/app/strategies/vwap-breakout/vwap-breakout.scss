@@ -699,6 +699,535 @@
   }
 }
 
+// ─── New config/running layout (redesign) ───────────────────────────────────
+
+.page-content { display: flex; flex-direction: column; gap: 18px; width: 100%; }
+
+.preset-row-top { max-width: 340px; margin-bottom: 0; }
+
+// ─── Configuration view: numbered card grid ──────────────────────────────────
+
+.config-layout {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 18px;
+  align-items: start;
+}
+
+.cfg-card-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+
+@media (max-width: 1100px) {
+  .config-layout { grid-template-columns: 1fr; }
+  .cfg-card-grid { grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); }
+}
+
+.cfg-card {
+  background: linear-gradient(165deg, rgba(79,70,229,0.07), rgba(255,255,255,0.02));
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 14px;
+  padding: 18px 20px;
+}
+
+.cfg-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(255,255,255,0.55);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+
+.cfg-card-num {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(79,70,229,0.25);
+  color: #a5b4fc;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.cfg-card-sub { margin-top: -8px; margin-bottom: 12px; }
+
+.premium-range-inline {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+// Right-side summary panel - sits beside the 3x2 card grid (stacks below it on narrow
+// screens, see .config-layout's breakpoint above).
+.config-summary-bar {
+  background: linear-gradient(165deg, rgba(79,70,229,0.07), rgba(255,255,255,0.02));
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 14px;
+  padding: 18px 20px 20px;
+  position: sticky;
+  top: 18px;
+}
+
+.summary-title { margin: 0 0 12px; }
+
+.summary-items {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.summary-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+
+  &:last-child { border-bottom: none; padding-bottom: 0; }
+
+  span { font-size: 11px; color: rgba(255,255,255,0.45); }
+  strong { font-size: 13px; color: #fff; font-variant-numeric: tabular-nums; text-align: right; }
+}
+
+// ─── Sparkline (NIFTY spot mini chart) ───────────────────────────────────────
+
+.sparkline {
+  width: 100%;
+  height: 28px;
+  margin-top: 4px;
+
+  polyline {
+    fill: none;
+    stroke-width: 2;
+    stroke: rgba(255,255,255,0.4);
+    vector-effect: non-scaling-stroke;
+
+    &.up { stroke: #2dd4bf; }
+    &.down { stroke: #ff4d4d; }
+  }
+}
+
+.header-clock {
+  margin-left: auto;
+  font-size: 13px;
+  font-weight: 700;
+  color: rgba(255,255,255,0.5);
+  font-variant-numeric: tabular-nums;
+}
+
+.header-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.preset-action-msg {
+  font-size: 12px;
+  font-weight: 600;
+  color: #2dd4bf;
+  white-space: nowrap;
+}
+
+.btn-header-save {
+  padding: 8px 18px;
+  border-radius: 8px;
+  border: 1px solid rgba(79,70,229,0.4);
+  background: rgba(79,70,229,0.15);
+  color: #a5b4fc;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  &:hover { background: rgba(79,70,229,0.25); }
+}
+
+.btn-header-delete {
+  padding: 8px 18px;
+  border-radius: 8px;
+  border: 1px solid rgba(255,77,77,0.3);
+  background: rgba(255,59,48,0.12);
+  color: #ff6b6b;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  &:hover { background: rgba(255,59,48,0.22); }
+}
+
+.save-preset-modal { width: 420px; }
+
+.preset-card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.run-subtitle {
+  font-size: 13px;
+  color: rgba(255,255,255,0.45);
+  margin-top: -8px;
+}
+
+.config-card {
+  background: linear-gradient(165deg, rgba(79,70,229,0.07), rgba(255,255,255,0.02));
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 16px;
+  padding: 24px 26px 28px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+}
+
+.config-card-header {
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+
+  h2 {
+    font-size: 16px;
+    font-weight: 700;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+}
+
+.cfg-icon { font-size: 15px; }
+
+.cfg-row-2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.cfg-section-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(255,255,255,0.55);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: 18px 0 4px;
+}
+
+.cfg-section-sub {
+  margin-bottom: 12px;
+}
+
+.btn-start-strategy {
+  width: 100%;
+  margin-top: 22px;
+  padding: 15px;
+  border-radius: 10px;
+  border: none;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  background: linear-gradient(135deg, #16a34a, #14b8a6);
+  color: #fff;
+  box-shadow: 0 6px 18px rgba(20,184,166,0.3);
+  transition: transform 0.15s;
+  &:hover { transform: translateY(-1px); }
+}
+
+.btn-stop-strategy {
+  width: 100%;
+  padding: 13px;
+  border-radius: 10px;
+  border: 1px solid rgba(255,77,77,0.3);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  background: rgba(255,59,48,0.15);
+  color: #ff6b6b;
+  margin-bottom: 10px;
+  &:hover { background: rgba(255,59,48,0.25); }
+}
+
+.btn-full { width: 100%; text-align: center; }
+
+// ─── Strategy Workflow strip ─────────────────────────────────────────────────
+
+.workflow-panel {
+  background: linear-gradient(165deg, rgba(79,70,229,0.07), rgba(255,255,255,0.02));
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 16px;
+  padding: 20px 22px;
+}
+
+.workflow-strip {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.workflow-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 110px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.workflow-dot {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255,255,255,0.06);
+  border: 2px solid rgba(255,255,255,0.15);
+  color: rgba(255,255,255,0.5);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.workflow-step.done .workflow-dot {
+  background: rgba(20,184,166,0.2);
+  border-color: #2dd4bf;
+  color: #2dd4bf;
+}
+
+.workflow-step.active-step .workflow-dot {
+  background: rgba(79,70,229,0.25);
+  border-color: #818cf8;
+  color: #a5b4fc;
+  animation: workflow-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes workflow-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(129,140,248,0.4); }
+  50% { box-shadow: 0 0 0 6px rgba(129,140,248,0); }
+}
+
+.workflow-label { font-size: 12px; font-weight: 700; color: #fff; }
+.workflow-sub { font-size: 10px; color: rgba(255,255,255,0.4); }
+
+.workflow-connector {
+  flex: 1;
+  height: 2px;
+  background: rgba(255,255,255,0.1);
+  margin-top: 17px;
+  min-width: 12px;
+
+  &.done { background: #2dd4bf; }
+}
+
+// ─── Running view: stat cards ────────────────────────────────────────────────
+
+.stat-cards-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px;
+}
+
+.stat-card {
+  background: linear-gradient(165deg, rgba(79,70,229,0.07), rgba(255,255,255,0.02));
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 14px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.stat-card-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: rgba(255,255,255,0.45);
+}
+
+.stat-card-value {
+  font-size: 22px;
+  font-weight: 700;
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+
+  &.up { color: #2dd4bf; }
+  &.down { color: #ff4d4d; }
+}
+
+.status-value { font-size: 16px; }
+
+.stat-card-sub {
+  font-size: 11px;
+  color: rgba(255,255,255,0.45);
+}
+
+.mini-progress {
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255,255,255,0.08);
+  overflow: hidden;
+  margin-top: 2px;
+}
+
+.mini-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #4f46e5, #14b8a6);
+  border-radius: 3px;
+  transition: width 0.3s;
+}
+
+// ─── Running view: CE/PE option cards ────────────────────────────────────────
+
+.option-cards-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.option-card {
+  background: linear-gradient(165deg, rgba(79,70,229,0.07), rgba(255,255,255,0.02));
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 14px;
+  padding: 18px 20px;
+
+  &.ce { border-top: 3px solid #2dd4bf; }
+  &.pe { border-top: 3px solid #ff6b6b; }
+}
+
+.option-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.option-symbol { font-size: 13px; font-weight: 700; color: #fff; }
+
+.tag-pill {
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  background: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.5);
+  white-space: nowrap;
+
+  &.tag-up { background: rgba(20,184,166,0.18); color: #2dd4bf; }
+  &.tag-down { background: rgba(255,59,48,0.15); color: #ff6b6b; }
+}
+
+.option-price {
+  font-size: 26px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  margin-bottom: 8px;
+
+  &.up { color: #2dd4bf; }
+  &.down { color: #ff4d4d; }
+}
+
+.option-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+  gap: 10px;
+  margin-top: 10px;
+
+  div { display: flex; flex-direction: column; gap: 3px; }
+  span { font-size: 10px; color: rgba(255,255,255,0.4); text-transform: uppercase; letter-spacing: 0.5px; }
+  strong {
+    font-size: 14px;
+    color: #fff;
+    font-variant-numeric: tabular-nums;
+    &.up { color: #2dd4bf; }
+    &.down { color: #ff4d4d; }
+  }
+}
+
+// ─── Running view: log / current-trade / controls / summary ─────────────────
+
+.run-grid {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+.run-col-main, .run-col-side { display: flex; flex-direction: column; gap: 16px; }
+
+.live-log-card, .current-trade-card, .trade-controls-card, .trade-summary-card {
+  background: linear-gradient(165deg, rgba(79,70,229,0.07), rgba(255,255,255,0.02));
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 14px;
+  padding: 16px 18px;
+}
+
+.live-log-card .activity-log-list { max-height: 280px; }
+
+.activity-log-row.log-good .activity-log-msg { color: #2dd4bf; }
+.activity-log-row.log-warn .activity-log-msg { color: #ff6b6b; }
+
+.current-trade-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+
+  .cfg-section-label { margin: 0; }
+}
+
+.current-trade-body { margin-top: 10px; }
+
+.current-trade-side {
+  font-size: 13px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 6px;
+  display: inline-block;
+
+  &.ce { background: rgba(20,184,166,0.15); color: #2dd4bf; }
+  &.pe { background: rgba(255,59,48,0.12); color: #ff6b6b; }
+}
+
+.no-active-trade {
+  padding: 24px 8px;
+  text-align: center;
+  color: rgba(255,255,255,0.4);
+  font-size: 12px;
+}
+
+.summary-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  font-size: 12px;
+
+  span { color: rgba(255,255,255,0.5); }
+  strong { color: #fff; font-variant-numeric: tabular-nums; text-align: right; }
+  strong.up { color: #2dd4bf; }
+  strong.down { color: #ff4d4d; }
+
+  &:last-child { border-bottom: none; }
+}
+
+@media (max-width: 860px) {
+  .cfg-row-2, .option-cards-row { grid-template-columns: 1fr; }
+  .run-grid { grid-template-columns: 1fr; }
+  .workflow-strip { overflow-x: auto; padding-bottom: 6px; }
+}
+
 .position-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
