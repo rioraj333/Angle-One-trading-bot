@@ -425,8 +425,31 @@ public class VwapBreakoutStrategyEngine {
         }
 
         if ("ENTRY_CONFIRMED".equals(legStatus) && close < vwap) {
-            handleExit(run, side, "VWAP cross (SL)", close);
+            if ("LIVE".equals(run.getMode())) {
+                exitLiveOnVwapCross(run, side, close);
+            } else {
+                handleExit(run, side, "VWAP cross (SL)", close);
+            }
         }
+    }
+
+    /** LIVE-mode VWAP-cross SL exit - was missing entirely until this fix, meaning every
+     *  candle-close SL exit in LIVE mode only updated internal bookkeeping and never
+     *  placed the actual SELL, leaving the real broker position open (confirmed in
+     *  production: a CE VWAP-cross exit reversed into a PE entry while the CE position
+     *  sat open on the broker for several minutes until someone closed it manually).
+     *  Mirrors exitLiveOnTargetTick(): if the order fails, don't mark the leg closed -
+     *  it stays ENTRY_CONFIRMED and retries on the next candle close. */
+    private void exitLiveOnVwapCross(VwapBreakoutRun run, String side, double closePrice) {
+        String symbol = "CE".equals(side) ? run.getCeSymbol() : run.getPeSymbol();
+        String token = "CE".equals(side) ? run.getCeToken() : run.getPeToken();
+
+        String exitOrderId = placeLiveOrder(run, "SELL", symbol, token, "VWAP-cross exit (" + side + ")");
+        if (exitOrderId == null) {
+            log(run, "ORDER_FAILED", side + " VWAP-cross market exit failed - will retry on next candle.");
+            return;
+        }
+        handleExit(run, side, "VWAP cross (SL)", closePrice);
     }
 
     private boolean canEnter(VwapBreakoutRun run, String side) {
