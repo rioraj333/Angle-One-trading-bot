@@ -402,10 +402,12 @@ export class DashboardComponent implements OnInit, OnDestroy {
     });
   }
 
-  /** Always manual - VWAP Breakout has no AUTO scheduled-deploy mode, so this just opens
-   *  the page with the preset pre-filled, same as a MANUAL Breakout925 preset does. */
+  /** Fully auto-starts the preset: navigates to the VWAP Breakout page, which searches
+   *  premium, auto-picks the highest-premium CE/PE strike in range, and starts the run
+   *  immediately - one click, no manual steps (LIVE mode still confirms before firing
+   *  real orders). */
   deployVwapPreset(preset: VwapBreakoutPreset): void {
-    this.router.navigate(['/strategies/vwap-breakout'], { queryParams: { presetId: preset.id } });
+    this.router.navigate(['/strategies/vwap-breakout'], { queryParams: { presetId: preset.id, autoStart: 1 } });
   }
 
   deleteVwapPreset(id: number): void {
