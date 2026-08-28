@@ -10,7 +10,7 @@ import { TradingService } from '../services/trading.service';
 import { getMarketStatus, isMarketOpen, MarketStatus } from '../utils/market-hours';
 import { Breakout925DeployStatus, Breakout925Preset, Breakout925PresetService, SaveBreakout925PresetRequest } from '../services/breakout925-preset.service';
 import { Breakout925Service } from '../services/breakout925.service';
-import { SaveVwapBreakoutPresetRequest, VwapBreakoutPreset, VwapBreakoutPresetService } from '../services/vwap-breakout-preset.service';
+import { SaveVwapBreakoutPresetRequest, VwapBreakoutDeployStatus, VwapBreakoutPreset, VwapBreakoutPresetService } from '../services/vwap-breakout-preset.service';
 
 interface PresetEditForm {
   name: string;
@@ -146,6 +146,11 @@ export class DashboardComponent implements OnInit, OnDestroy {
   pendingDeploy = signal<Breakout925DeployStatus | null>(null);
   cancelError = signal('');
 
+  vwapDeployingId = signal<number | null>(null);
+  vwapDeployResult = signal<Record<number, { status: 'ok' | 'error'; message: string }>>({});
+  vwapPendingDeploy = signal<VwapBreakoutDeployStatus | null>(null);
+  vwapCancelError = signal('');
+
   editingPresetId = signal<number | null>(null);
   editForm: PresetEditForm = this.blankEditForm();
   editError = signal('');
@@ -168,6 +173,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
   private clockSub?: Subscription;
   private refreshSub?: Subscription;
   private deployStatusSub?: Subscription;
+  private vwapDeployStatusSub?: Subscription;
   private activeRunSub?: Subscription;
 
   constructor(
@@ -229,6 +235,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
     this.clockSub?.unsubscribe();
     this.refreshSub?.unsubscribe();
     this.deployStatusSub?.unsubscribe();
+    this.vwapDeployStatusSub?.unsubscribe();
     this.activeRunSub?.unsubscribe();
   }
 
@@ -400,13 +407,89 @@ export class DashboardComponent implements OnInit, OnDestroy {
         this.vwapPresetsLoading.set(false);
       },
     });
+
+    // Picks up a deploy that was already scheduled before this page load (e.g. refresh).
+    this.vwapBreakoutPresetService.deployStatus().subscribe({
+      next: (status) => {
+        if (status.pending && status.status === 'SCHEDULED') {
+          this.vwapPendingDeploy.set(status);
+          this.startVwapDeployStatusPolling();
+        }
+      },
+      error: () => {},
+    });
   }
 
-  /** Fully auto-starts the preset: navigates to the VWAP Breakout page, which searches
-   *  premium, auto-picks the highest-premium CE/PE strike in range, and starts the run
-   *  immediately - one click, no manual steps, LIVE included. */
+  /** Defers strike selection to the preset's own entryWindowStart (searches premium,
+   *  auto-picks the highest-premium CE/PE in range, and starts) - or runs immediately if
+   *  that time's already passed today. No navigation - status shows inline right here,
+   *  same as a Breakout925 AUTO preset. */
   deployVwapPreset(preset: VwapBreakoutPreset): void {
-    this.router.navigate(['/strategies/vwap-breakout'], { queryParams: { presetId: preset.id, autoStart: 1 } });
+    this.vwapDeployingId.set(preset.id);
+    this.vwapBreakoutPresetService.deploy(preset.id).subscribe({
+      next: (result) => {
+        this.vwapDeployingId.set(null);
+        if (result.scheduled) {
+          this.vwapPendingDeploy.set({
+            pending: true,
+            presetId: preset.id,
+            presetName: preset.name,
+            triggerAt: result.triggerAt,
+            status: 'SCHEDULED',
+          });
+          this.startVwapDeployStatusPolling();
+          return;
+        }
+        const results = { ...this.vwapDeployResult() };
+        results[preset.id] = result.error
+          ? { status: 'error', message: result.error }
+          : { status: 'ok', message: 'Run started — view it on the VWAP Breakout page.' };
+        this.vwapDeployResult.set(results);
+      },
+      error: (err) => {
+        this.vwapDeployingId.set(null);
+        const results = { ...this.vwapDeployResult() };
+        results[preset.id] = { status: 'error', message: err.error?.message || 'Deploy failed.' };
+        this.vwapDeployResult.set(results);
+      },
+    });
+  }
+
+  private startVwapDeployStatusPolling(): void {
+    this.vwapDeployStatusSub?.unsubscribe();
+    this.vwapDeployStatusSub = interval(2000).subscribe(() => {
+      this.vwapBreakoutPresetService.deployStatus().subscribe({
+        next: (status) => {
+          if (status.pending && status.status === 'SCHEDULED') {
+            this.vwapPendingDeploy.set(status);
+            return;
+          }
+          this.vwapDeployStatusSub?.unsubscribe();
+          const presetId = this.vwapPendingDeploy()?.presetId ?? status.presetId;
+          this.vwapPendingDeploy.set(null);
+          if (presetId != null) {
+            const results = { ...this.vwapDeployResult() };
+            results[presetId] =
+              status.status === 'FAILED'
+                ? { status: 'error', message: status.message || 'Deploy failed.' }
+                : { status: 'ok', message: status.message || 'Run started.' };
+            this.vwapDeployResult.set(results);
+          }
+        },
+        error: () => {},
+      });
+    });
+  }
+
+  cancelVwapPendingDeploy(): void {
+    this.vwapCancelError.set('');
+    this.vwapBreakoutPresetService.cancelDeploy().subscribe({
+      next: () => {
+        this.vwapDeployStatusSub?.unsubscribe();
+        this.vwapPendingDeploy.set(null);
+      },
+      error: (err) => this.vwapCancelError.set(err.error?.error || 'Failed to cancel.'),
+    });
   }
 
   deleteVwapPreset(id: number): void {

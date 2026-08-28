@@ -61,8 +61,10 @@ public class VwapBreakoutPreset {
     @Column(nullable = false)
     private String exitMode = "VWAP_CROSS";
 
-    @Column(nullable = false)
-    private boolean requireFreshBreakout = false;
+    /** Nullable (not NOT NULL) deliberately - adding a NOT NULL boolean column via
+     *  ddl-auto=update fails on a table that already has rows (confirmed the hard way:
+     *  see maxDailyLoss for the pattern this follows instead). */
+    private Boolean requireFreshBreakout = false;
 
     @Column(nullable = false)
     private String mode; // PAPER or LIVE
@@ -99,7 +101,7 @@ public class VwapBreakoutPreset {
     public void setEntryCutoff(String entryCutoff) { this.entryCutoff = entryCutoff; }
     public String getExitMode() { return exitMode; }
     public void setExitMode(String exitMode) { this.exitMode = exitMode; }
-    public boolean isRequireFreshBreakout() { return requireFreshBreakout; }
+    public boolean isRequireFreshBreakout() { return Boolean.TRUE.equals(requireFreshBreakout); }
     public void setRequireFreshBreakout(boolean requireFreshBreakout) { this.requireFreshBreakout = requireFreshBreakout; }
     public String getMode() { return mode; }
     public void setMode(String mode) { this.mode = mode; }

@@ -74,13 +74,8 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
   /** MANUAL (default) - pick a CE/PE strike from the searched list yourself. AUTO - the
    *  highest-premium strike in range on each side is picked automatically the moment
    *  Search Premium returns, same "highest premium in range" rule Breakout925's AUTO
-   *  preset mode uses. Set automatically (and combined with pendingAutoStart) when
-   *  arriving here via the Dashboard's Deploy button. */
+   *  preset mode uses. */
   selectionMode: 'MANUAL' | 'AUTO' = 'MANUAL';
-  /** True only right after arriving via Dashboard Deploy - once the pending Search
-   *  Premium call (from applyPresetById) resolves and strikes are auto-picked, this
-   *  triggers an immediate Start with no further clicks, LIVE included. */
-  private pendingAutoStart = false;
 
   newPresetName = '';
   showSavePresetModal = signal(false);
@@ -275,8 +270,7 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
       next: (list) => {
         this.presets.set(list);
         const presetId = this.route.snapshot.queryParamMap.get('presetId');
-        const autoStart = this.route.snapshot.queryParamMap.get('autoStart') === '1';
-        if (presetId) this.applyPresetById(Number(presetId), true, autoStart);
+        if (presetId) this.applyPresetById(Number(presetId), true);
       },
       error: () => {},
     });
@@ -397,7 +391,6 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
           this.premiumSearchError.set(r?.message || 'Search failed.');
           this.ceMatches.set([]);
           this.peMatches.set([]);
-          this.pendingAutoStart = false;
           return;
         }
         const ce = (r.ce || []).slice().sort((a: PremiumMatch, b: PremiumMatch) => b.premium - a.premium);
@@ -415,20 +408,10 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
           if (ce.length > 0) this.selectCe(ce[0]);
           if (pe.length > 0) this.selectPe(pe[0]);
         }
-
-        if (this.pendingAutoStart) {
-          this.pendingAutoStart = false;
-          if (!this.selectedCe() && !this.selectedPe()) {
-            this.premiumSearchError.set('Deploy failed: no CE/PE strikes found in this preset\'s premium range.');
-          } else {
-            this.startStrategy();
-          }
-        }
       },
       error: (err) => {
         this.premiumSearching.set(false);
         this.premiumSearchError.set(err.error?.message || 'Search failed.');
-        this.pendingAutoStart = false;
       },
     });
   }
@@ -671,7 +654,7 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
     this.applyPresetById(Number(idStr), false);
   }
 
-  private applyPresetById(id: number, autoSearch: boolean, autoStart = false): void {
+  private applyPresetById(id: number, autoSearch: boolean): void {
     const preset = this.presets().find((p) => p.id === id);
     if (!preset) return;
     this.deployedFromPresetId.set(id);
@@ -689,13 +672,6 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
     this.exitMode = preset.exitMode;
     this.requireFreshBreakout = preset.requireFreshBreakout ?? false;
     this.mode = preset.mode;
-    if (autoStart) {
-      // Deploy from the Dashboard: pick strikes automatically (highest premium in
-      // range, same rule Breakout925's AUTO mode uses) and start right after search
-      // returns - see searchPremium()'s success handler.
-      this.selectionMode = 'AUTO';
-      this.pendingAutoStart = true;
-    }
     if (autoSearch) this.searchPremium();
   }
 

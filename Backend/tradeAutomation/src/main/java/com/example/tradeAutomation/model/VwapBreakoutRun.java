@@ -85,8 +85,10 @@ public class VwapBreakoutRun {
      *  post-SL) - it must first see a close at/below VWAP, then a later close back
      *  above it, before entry is allowed. Mainly useful starting mid-day, so you don't
      *  immediately chase a breakout that already happened before you clicked Start. */
-    @Column(nullable = false)
-    private boolean requireFreshBreakout = false;
+    /** Nullable (not NOT NULL) deliberately - adding a NOT NULL boolean column via
+     *  ddl-auto=update fails on a table that already has rows (confirmed the hard way:
+     *  see maxDailyLoss for the pattern this follows instead). */
+    private Boolean requireFreshBreakout = false;
 
     @Column(nullable = false)
     private String status = "WATCHING"; // WATCHING, DONE
@@ -166,7 +168,7 @@ public class VwapBreakoutRun {
     public void setEntryCutoff(String entryCutoff) { this.entryCutoff = entryCutoff; }
     public String getExitMode() { return exitMode; }
     public void setExitMode(String exitMode) { this.exitMode = exitMode; }
-    public boolean isRequireFreshBreakout() { return requireFreshBreakout; }
+    public boolean isRequireFreshBreakout() { return Boolean.TRUE.equals(requireFreshBreakout); }
     public void setRequireFreshBreakout(boolean requireFreshBreakout) { this.requireFreshBreakout = requireFreshBreakout; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }

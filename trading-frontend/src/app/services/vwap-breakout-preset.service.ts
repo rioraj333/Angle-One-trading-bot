@@ -42,6 +42,22 @@ export interface SaveVwapBreakoutPresetRequest {
   mode: 'PAPER' | 'LIVE';
 }
 
+export interface VwapBreakoutDeployResult {
+  error?: string;
+  scheduled?: boolean;
+  triggerAt?: string;
+  [key: string]: unknown;
+}
+
+export interface VwapBreakoutDeployStatus {
+  pending: boolean;
+  presetId?: number;
+  presetName?: string;
+  triggerAt?: string;
+  status?: 'SCHEDULED' | 'DONE' | 'FAILED';
+  message?: string;
+}
+
 @Injectable({ providedIn: 'root' })
 export class VwapBreakoutPresetService {
   private readonly apiUrl = '/api/vwap-breakout/presets';
@@ -62,5 +78,19 @@ export class VwapBreakoutPresetService {
 
   delete(id: number): Observable<void> {
     return this.http.delete<void>(`${this.apiUrl}/${id}`);
+  }
+
+  /** Defers strike selection to the preset's own entryWindowStart, or runs immediately
+   *  if that's already passed today - see VwapBreakoutDeployScheduler. */
+  deploy(id: number): Observable<VwapBreakoutDeployResult> {
+    return this.http.post<VwapBreakoutDeployResult>(`${this.apiUrl}/${id}/deploy`, {});
+  }
+
+  deployStatus(): Observable<VwapBreakoutDeployStatus> {
+    return this.http.get<VwapBreakoutDeployStatus>(`${this.apiUrl}/deploy-status`);
+  }
+
+  cancelDeploy(): Observable<{ cancelled?: boolean; error?: string }> {
+    return this.http.post<{ cancelled?: boolean; error?: string }>(`${this.apiUrl}/deploy-status/cancel`, {});
   }
 }

@@ -467,6 +467,15 @@
 
           <h2 class="section-title vwap-presets-title">VWAP Breakout presets</h2>
 
+          @if (vwapPendingDeploy(); as vpd) {
+            <div class="deploy-pending-banner">
+              <span>Auto-deploy for <strong>{{ vpd.presetName }}</strong> will pick strikes at
+                <strong>{{ vpd.triggerAt | date:'HH:mm' }}</strong> (its configured entry start time).</span>
+              <button class="btn-secondary" (click)="cancelVwapPendingDeploy()">Cancel</button>
+            </div>
+            @if (vwapCancelError()) { <p class="error-msg">{{ vwapCancelError() }}</p> }
+          }
+
           @if (vwapPresetsLoading()) {
             <p class="empty-msg">Loading presets...</p>
           } @else if (vwapPresets().length === 0) {
@@ -577,10 +586,19 @@
                       </span>
                     </div>
                     <div class="preset-card-actions">
-                      <button class="btn-secondary" (click)="deployVwapPreset(p)">Deploy</button>
+                      <button class="btn-secondary" (click)="deployVwapPreset(p)"
+                              [disabled]="vwapDeployingId() !== null || vwapPendingDeploy() !== null">
+                        {{ vwapDeployingId() === p.id ? 'Deploying...' : 'Deploy' }}
+                      </button>
                       <button class="btn-secondary" (click)="startEditVwapPreset(p)">Edit</button>
                       <button class="btn-secondary" (click)="deleteVwapPreset(p.id)">Delete</button>
+                      @if (vwapDeployResult()[p.id] || vwapPendingDeploy()?.presetId === p.id) {
+                        <a class="btn-secondary" routerLink="/strategies/vwap-breakout">View</a>
+                      }
                     </div>
+                    @if (vwapDeployResult()[p.id]; as r) {
+                      <p class="deploy-result" [class.error]="r.status === 'error'">{{ r.message }}</p>
+                    }
                   }
                 </div>
               }

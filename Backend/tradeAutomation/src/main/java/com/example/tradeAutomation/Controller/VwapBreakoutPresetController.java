@@ -12,19 +12,27 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.HashMap;
+import java.util.Map;
+
+import com.example.tradeAutomation.Service.VwapBreakoutDeployScheduler;
 import com.example.tradeAutomation.model.VwapBreakoutPreset;
 import com.example.tradeAutomation.repository.VwapBreakoutPresetRepository;
 
-/** Saved configs for the VWAP Breakout strategy - always manual strike selection, no
- *  AUTO/scheduled-deploy mode (see VwapBreakoutPreset). */
+/** Saved configs for the VWAP Breakout strategy. Deploy always defers strike selection
+ *  to the preset's own entryWindowStart (or runs immediately if that's already passed) -
+ *  see VwapBreakoutDeployScheduler. */
 @RestController
 @RequestMapping("/api/vwap-breakout/presets")
 public class VwapBreakoutPresetController {
 
     private final VwapBreakoutPresetRepository presetRepository;
+    private final VwapBreakoutDeployScheduler deployScheduler;
 
-    public VwapBreakoutPresetController(VwapBreakoutPresetRepository presetRepository) {
+    public VwapBreakoutPresetController(VwapBreakoutPresetRepository presetRepository,
+            VwapBreakoutDeployScheduler deployScheduler) {
         this.presetRepository = presetRepository;
+        this.deployScheduler = deployScheduler;
     }
 
     public record PresetRequest(
@@ -60,6 +68,33 @@ public class VwapBreakoutPresetController {
     @DeleteMapping("/{id}")
     public void delete(@PathVariable Long id) {
         presetRepository.deleteById(id);
+    }
+
+    @PostMapping("/{id}/deploy")
+    public Map<String, Object> deploy(@PathVariable Long id) {
+        try {
+            return deployScheduler.scheduleOrRun(id);
+        } catch (IllegalStateException e) {
+            Map<String, Object> result = new HashMap<>();
+            result.put("error", e.getMessage());
+            return result;
+        }
+    }
+
+    @GetMapping("/deploy-status")
+    public Map<String, Object> deployStatus() {
+        return deployScheduler.getStatus();
+    }
+
+    @PostMapping("/deploy-status/cancel")
+    public Map<String, Object> cancelDeploy() {
+        try {
+            return deployScheduler.cancel();
+        } catch (IllegalStateException e) {
+            Map<String, Object> result = new HashMap<>();
+            result.put("error", e.getMessage());
+            return result;
+        }
     }
 
     private void validate(PresetRequest request) {
