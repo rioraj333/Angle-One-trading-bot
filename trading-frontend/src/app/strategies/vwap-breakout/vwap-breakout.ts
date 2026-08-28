@@ -79,7 +79,7 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
   selectionMode: 'MANUAL' | 'AUTO' = 'MANUAL';
   /** True only right after arriving via Dashboard Deploy - once the pending Search
    *  Premium call (from applyPresetById) resolves and strikes are auto-picked, this
-   *  triggers an immediate Start with no further clicks (LIVE mode still confirms). */
+   *  triggers an immediate Start with no further clicks, LIVE included. */
   private pendingAutoStart = false;
 
   newPresetName = '';
@@ -420,10 +420,6 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
           this.pendingAutoStart = false;
           if (!this.selectedCe() && !this.selectedPe()) {
             this.premiumSearchError.set('Deploy failed: no CE/PE strikes found in this preset\'s premium range.');
-          } else if (this.mode === 'LIVE') {
-            if (confirm('Deploy this preset LIVE now? Real orders will be placed immediately.')) {
-              this.startStrategy();
-            }
           } else {
             this.startStrategy();
           }

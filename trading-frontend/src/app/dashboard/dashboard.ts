@@ -404,8 +404,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
 
   /** Fully auto-starts the preset: navigates to the VWAP Breakout page, which searches
    *  premium, auto-picks the highest-premium CE/PE strike in range, and starts the run
-   *  immediately - one click, no manual steps (LIVE mode still confirms before firing
-   *  real orders). */
+   *  immediately - one click, no manual steps, LIVE included. */
   deployVwapPreset(preset: VwapBreakoutPreset): void {
     this.router.navigate(['/strategies/vwap-breakout'], { queryParams: { presetId: preset.id, autoStart: 1 } });
   }
