@@ -355,7 +355,18 @@ public class VwapBreakoutStrategyEngine {
             double cumVol = 0;
             String lastTimestamp = null;
             double lastClose = 0;
-            for (Object rowObj : rows) {
+            // The very last row Angel One returns can be the still-forming current minute
+            // (partial OHLC that keeps changing as the minute progresses, confirmed the hard
+            // way: a candle read a few seconds into its minute showed a much lower close than
+            // its real settled one, the engine evaluated that partial reading once, then never
+            // looked at that minute again per the "only react to a new timestamp once" rule
+            // below - so it missed a real breakout and only caught it a full minute late, at a
+            // materially worse price). Only trust a candle once a newer row exists after it -
+            // i.e. skip the last row entirely here. It'll be evaluated for real, fully closed,
+            // once a later poll makes it no longer the last row.
+            int usableRows = rows.size() - 1;
+            for (int i = 0; i < usableRows; i++) {
+                Object rowObj = rows.get(i);
                 if (!(rowObj instanceof List<?> candle) || candle.size() < 6) continue;
                 double high = Double.parseDouble(String.valueOf(candle.get(2)));
                 double low = Double.parseDouble(String.valueOf(candle.get(3)));
