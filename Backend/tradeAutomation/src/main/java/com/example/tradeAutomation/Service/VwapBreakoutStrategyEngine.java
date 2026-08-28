@@ -70,6 +70,11 @@ public class VwapBreakoutStrategyEngine {
     private final Map<String, String> lastCandleTimestamp = new ConcurrentHashMap<>(); // side -> last processed candle's raw timestamp
     private final Map<String, Double> lastKnownVwap = new ConcurrentHashMap<>();
     private final Map<String, Double> lastKnownClose = new ConcurrentHashMap<>();
+    /** requireFreshBreakout bookkeeping - true once a side has seen a close at/below its
+     *  VWAP while WATCHING, so a subsequent close-above is a genuine fresh cross rather
+     *  than whatever state already existed when watching began. Reset every time a leg
+     *  (re)enters WATCHING - see armWatching(). */
+    private final Map<String, Boolean> seenBelowVwap = new ConcurrentHashMap<>();
     private volatile long lastCandlePollAttempt = 0;
     private volatile long lastOrderPollAttempt = 0;
 
@@ -91,8 +96,8 @@ public class VwapBreakoutStrategyEngine {
     public record VwapBreakoutStartRequest(
             String indexName, String exchSeg, Integer quantity, Double targetPoints, String targetType,
             Double pnlTarget, Double pnlTrailingStep, Double maxDailyLoss, Integer maxTrades,
-            String entryWindowStart, String entryCutoff, String exitMode, String mode,
-            LegPick ce, LegPick pe, Long presetId) {}
+            String entryWindowStart, String entryCutoff, String exitMode, Boolean requireFreshBreakout,
+            String mode, LegPick ce, LegPick pe, Long presetId) {}
 
     // ─── Start / Stop ───────────────────────────────────────────────────────────
 
@@ -155,6 +160,7 @@ public class VwapBreakoutStrategyEngine {
         run.setEntryWindowStart(request.entryWindowStart());
         run.setEntryCutoff(request.entryCutoff());
         run.setExitMode("VWAP_CROSS");
+        run.setRequireFreshBreakout(Boolean.TRUE.equals(request.requireFreshBreakout()));
         run.setPresetId(request.presetId());
         run.setStatus("WATCHING");
         run.setEntryCount(0);
@@ -184,6 +190,7 @@ public class VwapBreakoutStrategyEngine {
         lastCandleTimestamp.clear();
         lastKnownVwap.clear();
         lastKnownClose.clear();
+        seenBelowVwap.clear();
         lastCandlePollAttempt = 0;
         lastOrderPollAttempt = 0;
 
@@ -207,10 +214,12 @@ public class VwapBreakoutStrategyEngine {
                 : "target " + request.targetPoints() + " pts";
         String lossCutoffDesc = request.maxDailyLoss() != null && request.maxDailyLoss() > 0
                 ? ", max daily loss Rs" + request.maxDailyLoss() : "";
+        String freshBreakoutDesc = run.isRequireFreshBreakout()
+                ? ", waiting for a fresh below->above VWAP cross before entering (mid-day-start safe)" : "";
         log(run, "STARTED", "Armed " + request.mode() + " run for " + request.indexName() + ", quantity "
                 + request.quantity() + " lots, " + targetDesc + ", max " + request.maxTrades()
                 + " trade(s), entry window " + request.entryWindowStart() + "-" + request.entryCutoff()
-                + lossCutoffDesc + ".");
+                + lossCutoffDesc + freshBreakoutDesc + ".");
         return getState();
     }
 
@@ -418,6 +427,10 @@ public class VwapBreakoutStrategyEngine {
         String legStatus = "CE".equals(side) ? run.getCeLegStatus() : run.getPeLegStatus();
 
         if ("WATCHING".equals(legStatus)) {
+            if (run.isRequireFreshBreakout()) {
+                if (close <= vwap) seenBelowVwap.put(side, true);
+                if (!Boolean.TRUE.equals(seenBelowVwap.get(side))) return; // hasn't seen a genuine reset point yet
+            }
             if (close > vwap && canEnter(run, side)) {
                 enterLeg(run, side, close, vwap, false);
             }
@@ -747,6 +760,10 @@ public class VwapBreakoutStrategyEngine {
             run.setPeTradeId(null);
         }
         maxima.remove(side);
+        // Re-arming always means the leg just exited on a below-VWAP close, so this is
+        // already a legitimate reset point - but clear it explicitly too, in case
+        // requireFreshBreakout got toggled or the timing lines up oddly.
+        seenBelowVwap.put(side, false);
     }
 
     private double closeLeg(VwapBreakoutRun run, String side, String reason, double exitPrice) {
@@ -895,6 +912,7 @@ public class VwapBreakoutStrategyEngine {
         state.put("entryWindowStart", run.getEntryWindowStart());
         state.put("entryCutoff", run.getEntryCutoff());
         state.put("exitMode", run.getExitMode());
+        state.put("requireFreshBreakout", run.isRequireFreshBreakout());
         state.put("presetId", run.getPresetId());
 
         if (run.getCeToken() != null) {

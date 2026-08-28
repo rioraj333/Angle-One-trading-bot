@@ -107,6 +107,13 @@
           </div>
           <p class="field-hint">Candle closes below VWAP to exit</p>
         </div>
+        <div class="form-row">
+          <label class="checkbox-row">
+            <input type="checkbox" [(ngModel)]="requireFreshBreakout" />
+            Require fresh breakout after start
+          </label>
+          <p class="field-hint">Starting mid-day, waits for a close at/below VWAP first, then a fresh close back above it - so it doesn't immediately chase a breakout that already happened before you clicked Start.</p>
+        </div>
       </div>
 
       <div class="cfg-card">
@@ -180,6 +187,7 @@
          <div class="summary-item"><span>Premium Range</span><strong>&#8377;{{ premiumFrom }} - &#8377;{{ premiumTo }}</strong></div>
          <div class="summary-item"><span>Selection</span><strong>{{ selectionMode === 'AUTO' ? 'Auto (highest premium)' : 'Manual' }}</strong></div>
          <div class="summary-item"><span>Condition</span><strong>Break above VWAP</strong></div>
+         <div class="summary-item"><span>Fresh breakout only</span><strong>{{ requireFreshBreakout ? 'Yes' : 'No' }}</strong></div>
        </div>
        <button class="btn-start-strategy" (click)="startStrategy()">&#9654; Start Strategy</button>
      </div>

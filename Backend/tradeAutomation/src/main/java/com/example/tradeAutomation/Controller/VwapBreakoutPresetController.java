@@ -31,7 +31,7 @@ public class VwapBreakoutPresetController {
             String name, String indexName, Double premiumFrom, Double premiumTo,
             Integer quantity, Double targetPoints, String targetType, Double pnlTarget, Double pnlTrailingStep,
             Double maxDailyLoss, Integer maxTrades, String entryWindowStart, String entryCutoff, String exitMode,
-            String mode) {}
+            Boolean requireFreshBreakout, String mode) {}
 
     @GetMapping
     public List<VwapBreakoutPreset> list() {
@@ -105,6 +105,7 @@ public class VwapBreakoutPresetController {
         preset.setEntryWindowStart(request.entryWindowStart());
         preset.setEntryCutoff(request.entryCutoff());
         preset.setExitMode(request.exitMode() != null ? request.exitMode() : "VWAP_CROSS");
+        preset.setRequireFreshBreakout(Boolean.TRUE.equals(request.requireFreshBreakout()));
         preset.setMode(request.mode());
     }
 }

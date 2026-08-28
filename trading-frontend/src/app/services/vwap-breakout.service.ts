@@ -26,6 +26,11 @@ export interface VwapBreakoutStartRequest {
   entryWindowStart: string;
   entryCutoff: string;
   exitMode: 'VWAP_CROSS' | 'TRAILING_SL';
+  /** Off by default. When on, a leg can't enter on whatever above/below-VWAP state
+   *  already exists the moment it starts watching - it must first see a close at/below
+   *  VWAP, then later close back above it. Mainly for starting mid-day, so you don't
+   *  immediately chase a breakout that already happened before you clicked Start. */
+  requireFreshBreakout?: boolean;
   mode: 'PAPER' | 'LIVE';
   ce: VwapBreakoutLegPick | null;
   pe: VwapBreakoutLegPick | null;
@@ -76,6 +81,7 @@ export interface VwapBreakoutState {
   entryWindowStart?: string;
   entryCutoff?: string;
   exitMode?: string;
+  requireFreshBreakout?: boolean;
   presetId?: number | null;
   ce?: VwapBreakoutLegState;
   pe?: VwapBreakoutLegState;

@@ -66,6 +66,11 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
   entryWindowStart = '09:15';
   entryCutoff = '15:00';
   exitMode: 'VWAP_CROSS' | 'TRAILING_SL' = 'VWAP_CROSS';
+  /** Off by default. When on, a leg can't enter on whatever above/below-VWAP state
+   *  already exists the moment it starts watching - it must first see a close at/below
+   *  VWAP, then later close back above it. Mainly for starting mid-day, so you don't
+   *  immediately chase a breakout that already happened before you clicked Start. */
+  requireFreshBreakout = false;
   /** MANUAL (default) - pick a CE/PE strike from the searched list yourself. AUTO - the
    *  highest-premium strike in range on each side is picked automatically the moment
    *  Search Premium returns, same "highest premium in range" rule Breakout925's AUTO
@@ -334,6 +339,7 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
           if (state.entryWindowStart) this.entryWindowStart = state.entryWindowStart;
           if (state.entryCutoff) this.entryCutoff = state.entryCutoff;
           if (state.exitMode) this.exitMode = state.exitMode as 'VWAP_CROSS' | 'TRAILING_SL';
+          if (state.requireFreshBreakout !== undefined) this.requireFreshBreakout = state.requireFreshBreakout;
           if (state.mode) this.mode = state.mode;
 
           // Keep the Trades Today / Trade Summary panels current as trades close out,
@@ -531,6 +537,7 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
       entryWindowStart: this.entryWindowStart,
       entryCutoff: this.entryCutoff,
       exitMode: this.exitMode,
+      requireFreshBreakout: this.requireFreshBreakout,
       mode: this.mode,
       ce: toPick(ce),
       pe: toPick(pe),
@@ -664,6 +671,7 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
     this.entryWindowStart = preset.entryWindowStart;
     this.entryCutoff = preset.entryCutoff;
     this.exitMode = preset.exitMode;
+    this.requireFreshBreakout = preset.requireFreshBreakout ?? false;
     this.mode = preset.mode;
     if (autoSearch) this.searchPremium();
   }
@@ -694,6 +702,7 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
       entryWindowStart: this.entryWindowStart,
       entryCutoff: this.entryCutoff,
       exitMode: this.exitMode,
+      requireFreshBreakout: this.requireFreshBreakout,
       mode: this.mode,
     };
   }

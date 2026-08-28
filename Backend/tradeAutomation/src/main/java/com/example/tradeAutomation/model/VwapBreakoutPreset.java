@@ -62,6 +62,9 @@ public class VwapBreakoutPreset {
     private String exitMode = "VWAP_CROSS";
 
     @Column(nullable = false)
+    private boolean requireFreshBreakout = false;
+
+    @Column(nullable = false)
     private String mode; // PAPER or LIVE
 
     @Column(nullable = false)
@@ -96,6 +99,8 @@ public class VwapBreakoutPreset {
     public void setEntryCutoff(String entryCutoff) { this.entryCutoff = entryCutoff; }
     public String getExitMode() { return exitMode; }
     public void setExitMode(String exitMode) { this.exitMode = exitMode; }
+    public boolean isRequireFreshBreakout() { return requireFreshBreakout; }
+    public void setRequireFreshBreakout(boolean requireFreshBreakout) { this.requireFreshBreakout = requireFreshBreakout; }
     public String getMode() { return mode; }
     public void setMode(String mode) { this.mode = mode; }
     public LocalDateTime getCreatedAt() { return createdAt; }

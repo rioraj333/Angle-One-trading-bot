@@ -39,6 +39,7 @@ interface VwapPresetEditForm {
   maxTrades: number;
   entryWindowStart: string;
   entryCutoff: string;
+  requireFreshBreakout: boolean;
   mode: 'PAPER' | 'LIVE';
 }
 
@@ -431,6 +432,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
       maxTrades: preset.maxTrades,
       entryWindowStart: preset.entryWindowStart,
       entryCutoff: preset.entryCutoff,
+      requireFreshBreakout: preset.requireFreshBreakout ?? false,
       mode: preset.mode,
     };
   }
@@ -494,7 +496,8 @@ export class DashboardComponent implements OnInit, OnDestroy {
       name: '', indexName: 'NIFTY', premiumFrom: 150, premiumTo: 200, quantity: 5,
       targetPoints: 15, targetType: 'POINTS', pnlTarget: 5000, pnlTrailingStep: null,
       maxDailyLoss: null,
-      maxTrades: 5, entryWindowStart: '09:15', entryCutoff: '15:00', mode: 'PAPER',
+      maxTrades: 5, entryWindowStart: '09:15', entryCutoff: '15:00',
+      requireFreshBreakout: false, mode: 'PAPER',
     };
   }
 

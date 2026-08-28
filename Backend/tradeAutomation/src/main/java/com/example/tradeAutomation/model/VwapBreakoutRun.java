@@ -80,6 +80,14 @@ public class VwapBreakoutRun {
     @Column(nullable = false)
     private String exitMode = "VWAP_CROSS";
 
+    /** Off by default. When on, a leg can't enter on whatever above/below-VWAP state
+     *  already exists the moment it starts watching (at run start, or after re-arming
+     *  post-SL) - it must first see a close at/below VWAP, then a later close back
+     *  above it, before entry is allowed. Mainly useful starting mid-day, so you don't
+     *  immediately chase a breakout that already happened before you clicked Start. */
+    @Column(nullable = false)
+    private boolean requireFreshBreakout = false;
+
     @Column(nullable = false)
     private String status = "WATCHING"; // WATCHING, DONE
 
@@ -158,6 +166,8 @@ public class VwapBreakoutRun {
     public void setEntryCutoff(String entryCutoff) { this.entryCutoff = entryCutoff; }
     public String getExitMode() { return exitMode; }
     public void setExitMode(String exitMode) { this.exitMode = exitMode; }
+    public boolean isRequireFreshBreakout() { return requireFreshBreakout; }
+    public void setRequireFreshBreakout(boolean requireFreshBreakout) { this.requireFreshBreakout = requireFreshBreakout; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
     public Integer getEntryCount() { return entryCount; }

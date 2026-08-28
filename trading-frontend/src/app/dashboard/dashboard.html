@@ -546,6 +546,13 @@
                           <label>Max daily loss (&#8377;, optional)</label>
                           <input type="number" class="op-input" [(ngModel)]="vwapEditForm.maxDailyLoss" min="1" placeholder="Leave blank for no cap" />
                         </div>
+                        <div class="op-field">
+                          <label>Fresh breakout only</label>
+                          <div class="edit-toggle">
+                            <button [class.active]="!vwapEditForm.requireFreshBreakout" (click)="vwapEditForm.requireFreshBreakout = false">Off</button>
+                            <button [class.active]="vwapEditForm.requireFreshBreakout" (click)="vwapEditForm.requireFreshBreakout = true">On</button>
+                          </div>
+                        </div>
                       </div>
                       @if (vwapEditError()) { <p class="error-msg">{{ vwapEditError() }}</p> }
                       <div class="preset-card-actions">
@@ -566,6 +573,7 @@
                           target {{ p.targetPoints }}pts
                         }
                         @if (p.maxDailyLoss) { &middot; max loss &#8377;{{ p.maxDailyLoss }} }
+                        @if (p.requireFreshBreakout) { &middot; fresh breakout only }
                       </span>
                     </div>
                     <div class="preset-card-actions">

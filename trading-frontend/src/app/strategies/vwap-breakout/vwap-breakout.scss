@@ -761,6 +761,25 @@
 
 .cfg-card-sub { margin-top: -8px; margin-bottom: 12px; }
 
+.checkbox-row {
+  display: flex !important;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  text-transform: none !important;
+  letter-spacing: normal !important;
+  color: #fff !important;
+  cursor: pointer;
+
+  input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    accent-color: #4f46e5;
+    cursor: pointer;
+  }
+}
+
 .premium-range-inline {
   display: flex;
   align-items: center;

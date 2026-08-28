@@ -18,6 +18,7 @@ export interface VwapBreakoutPreset {
   entryWindowStart: string;
   entryCutoff: string;
   exitMode: 'VWAP_CROSS' | 'TRAILING_SL';
+  requireFreshBreakout?: boolean;
   mode: 'PAPER' | 'LIVE';
   createdAt: string;
 }
@@ -37,6 +38,7 @@ export interface SaveVwapBreakoutPresetRequest {
   entryWindowStart: string;
   entryCutoff: string;
   exitMode: 'VWAP_CROSS' | 'TRAILING_SL';
+  requireFreshBreakout?: boolean;
   mode: 'PAPER' | 'LIVE';
 }
 
