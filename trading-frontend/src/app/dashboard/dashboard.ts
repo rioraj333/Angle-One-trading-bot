@@ -39,6 +39,7 @@ interface VwapPresetEditForm {
   maxTrades: number;
   entryWindowStart: string;
   entryCutoff: string;
+  candleInterval: 'ONE_MINUTE' | 'THREE_MINUTE' | 'FIVE_MINUTE';
   requireFreshBreakout: boolean;
   mode: 'PAPER' | 'LIVE';
 }
@@ -516,6 +517,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
       maxTrades: preset.maxTrades,
       entryWindowStart: preset.entryWindowStart,
       entryCutoff: preset.entryCutoff,
+      candleInterval: preset.candleInterval ?? 'ONE_MINUTE',
       requireFreshBreakout: preset.requireFreshBreakout ?? false,
       mode: preset.mode,
     };
@@ -581,7 +583,7 @@ export class DashboardComponent implements OnInit, OnDestroy {
       targetPoints: 15, targetType: 'POINTS', pnlTarget: 5000, pnlTrailingStep: null,
       maxDailyLoss: null,
       maxTrades: 5, entryWindowStart: '09:15', entryCutoff: '15:00',
-      requireFreshBreakout: false, mode: 'PAPER',
+      candleInterval: 'ONE_MINUTE', requireFreshBreakout: false, mode: 'PAPER',
     };
   }
 

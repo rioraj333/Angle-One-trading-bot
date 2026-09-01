@@ -88,7 +88,16 @@
         <div class="form-row">
           <label for="entryCutoff">Entry Cutoff</label>
           <input id="entryCutoff" type="time" class="select-input" [(ngModel)]="entryCutoff" />
-          <p class="field-hint">No new entries after this time</p>
+          <p class="field-hint">No new entries after this time - any open position is squared off automatically too</p>
+        </div>
+        <div class="form-row">
+          <label for="candleInterval">Candle Timeframe</label>
+          <select id="candleInterval" [(ngModel)]="candleInterval" class="select-input">
+            @for (opt of candleIntervalOptions; track opt.value) {
+              <option [value]="opt.value">{{ opt.label }}</option>
+            }
+          </select>
+          <p class="field-hint">Candle size used for VWAP &amp; breakout checks</p>
         </div>
       </div>
 
@@ -180,6 +189,7 @@
          <div class="summary-item"><span>Lots</span><strong>{{ quantity }}</strong></div>
          <div class="summary-item"><span>Max Trades</span><strong>{{ maxTrades }}</strong></div>
          <div class="summary-item"><span>Entry Time</span><strong>{{ entryWindowStart }}</strong></div>
+         <div class="summary-item"><span>Candle Timeframe</span><strong>{{ candleInterval === 'THREE_MINUTE' ? '3 min' : candleInterval === 'FIVE_MINUTE' ? '5 min' : '1 min' }}</strong></div>
          <div class="summary-item">
            <span>Target</span>
            <strong>{{ targetType === 'POINTS' ? (targetPoints + ' pts') : ('₹' + pnlTarget) }}</strong>

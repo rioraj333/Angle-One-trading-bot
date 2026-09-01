@@ -58,6 +58,10 @@ public class VwapBreakoutPreset {
     @Column(nullable = false)
     private String entryCutoff;
 
+    /** ONE_MINUTE (default), THREE_MINUTE, or FIVE_MINUTE - see VwapBreakoutRun. Nullable
+     *  deliberately (same reason as requireFreshBreakout). */
+    private String candleInterval;
+
     @Column(nullable = false)
     private String exitMode = "VWAP_CROSS";
 
@@ -99,6 +103,8 @@ public class VwapBreakoutPreset {
     public void setEntryWindowStart(String entryWindowStart) { this.entryWindowStart = entryWindowStart; }
     public String getEntryCutoff() { return entryCutoff; }
     public void setEntryCutoff(String entryCutoff) { this.entryCutoff = entryCutoff; }
+    public String getCandleInterval() { return candleInterval != null ? candleInterval : "ONE_MINUTE"; }
+    public void setCandleInterval(String candleInterval) { this.candleInterval = candleInterval; }
     public String getExitMode() { return exitMode; }
     public void setExitMode(String exitMode) { this.exitMode = exitMode; }
     public boolean isRequireFreshBreakout() { return Boolean.TRUE.equals(requireFreshBreakout); }

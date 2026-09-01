@@ -100,11 +100,14 @@ public class VwapBreakoutStrategyEngine {
 
     public record LegPick(Integer strike, String symbol, String token) {}
 
+    private static final java.util.Set<String> VALID_CANDLE_INTERVALS =
+            java.util.Set.of("ONE_MINUTE", "THREE_MINUTE", "FIVE_MINUTE");
+
     public record VwapBreakoutStartRequest(
             String indexName, String exchSeg, Integer quantity, Double targetPoints, String targetType,
             Double pnlTarget, Double pnlTrailingStep, Double maxDailyLoss, Integer maxTrades,
-            String entryWindowStart, String entryCutoff, String exitMode, Boolean requireFreshBreakout,
-            String mode, LegPick ce, LegPick pe, Long presetId) {}
+            String entryWindowStart, String entryCutoff, String candleInterval, String exitMode,
+            Boolean requireFreshBreakout, String mode, LegPick ce, LegPick pe, Long presetId) {}
 
     // ─── Start / Stop ───────────────────────────────────────────────────────────
 
@@ -149,6 +152,10 @@ public class VwapBreakoutStrategyEngine {
         if (request.maxDailyLoss() != null && request.maxDailyLoss() <= 0) {
             throw new IllegalStateException("Max daily loss must be greater than 0.");
         }
+        String candleInterval = request.candleInterval() != null ? request.candleInterval() : "ONE_MINUTE";
+        if (!VALID_CANDLE_INTERVALS.contains(candleInterval)) {
+            throw new IllegalStateException("candleInterval must be one of " + VALID_CANDLE_INTERVALS + ".");
+        }
 
         VwapBreakoutRun run = new VwapBreakoutRun();
         run.setRunDate(LocalDate.now());
@@ -166,6 +173,7 @@ public class VwapBreakoutStrategyEngine {
         run.setMaxTrades(request.maxTrades());
         run.setEntryWindowStart(request.entryWindowStart());
         run.setEntryCutoff(request.entryCutoff());
+        run.setCandleInterval(candleInterval);
         run.setExitMode("VWAP_CROSS");
         run.setRequireFreshBreakout(Boolean.TRUE.equals(request.requireFreshBreakout()));
         run.setPresetId(request.presetId());
@@ -352,15 +360,16 @@ public class VwapBreakoutStrategyEngine {
     private record VwapSnapshot(double vwap, double lastClose, String lastTimestamp) {}
 
     /** Cumulative VWAP (typical-price*volume / volume) from market open 09:15 to now, from
-     *  polled 1-minute candles - shared by the run-bound poller and the standalone preview
-     *  endpoint (getVwapPreview()) used before a strategy is even started. */
-    private VwapSnapshot fetchVwapSnapshot(String exchSeg, String token) {
+     *  polled candles at whichever interval the run (or preview caller) configured -
+     *  shared by the run-bound poller and the standalone preview endpoint
+     *  (getVwapPreview()) used before a strategy is even started. */
+    private VwapSnapshot fetchVwapSnapshot(String exchSeg, String token, String candleInterval) {
         try {
             String today = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
             Map<String, Object> params = new HashMap<>();
             params.put("exchange", exchSeg);
             params.put("symboltoken", token);
-            params.put("interval", "ONE_MINUTE");
+            params.put("interval", candleInterval != null ? candleInterval : "ONE_MINUTE");
             params.put("fromdate", today + " 09:15");
             params.put("todate", LocalDateTime.now().format(CANDLE_TIME_FMT));
 
@@ -413,7 +422,7 @@ public class VwapBreakoutStrategyEngine {
         String token = "CE".equals(side) ? run.getCeToken() : run.getPeToken();
         if (token == null) return;
 
-        VwapSnapshot snap = fetchVwapSnapshot(run.getExchSeg(), token);
+        VwapSnapshot snap = fetchVwapSnapshot(run.getExchSeg(), token, run.getCandleInterval());
         if (snap == null) return;
 
         lastKnownVwap.put(side, snap.vwap());
@@ -428,7 +437,7 @@ public class VwapBreakoutStrategyEngine {
 
     /** Standalone VWAP lookup for a strike you've picked but haven't started a run for yet -
      *  same calculation as the live engine, just without any run/entry side effects. */
-    public Map<String, Object> getVwapPreview(String exchSeg, String token) {
+    public Map<String, Object> getVwapPreview(String exchSeg, String token, String candleInterval) {
         Map<String, Object> result = new HashMap<>();
         var sessionOpt = sessionStore.getCurrentSession();
         if (sessionOpt.isEmpty()) {
@@ -436,7 +445,7 @@ public class VwapBreakoutStrategyEngine {
             result.put("message", "Not logged in to Angel One.");
             return result;
         }
-        VwapSnapshot snap = fetchVwapSnapshot(exchSeg, token);
+        VwapSnapshot snap = fetchVwapSnapshot(exchSeg, token, candleInterval);
         if (snap == null) {
             result.put("status", false);
             result.put("message", "No data yet - either no candles today, or a temporary broker limit. Will retry automatically.");
@@ -966,6 +975,7 @@ public class VwapBreakoutStrategyEngine {
         state.put("entryCount", run.getEntryCount());
         state.put("entryWindowStart", run.getEntryWindowStart());
         state.put("entryCutoff", run.getEntryCutoff());
+        state.put("candleInterval", run.getCandleInterval());
         state.put("exitMode", run.getExitMode());
         state.put("requireFreshBreakout", run.isRequireFreshBreakout());
         state.put("presetId", run.getPresetId());

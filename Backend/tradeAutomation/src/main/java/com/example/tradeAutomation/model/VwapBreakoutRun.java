@@ -76,6 +76,12 @@ public class VwapBreakoutRun {
     @Column(nullable = false)
     private String entryCutoff; // "HH:mm"
 
+    /** ONE_MINUTE (default), THREE_MINUTE, or FIVE_MINUTE - the candle size both VWAP and
+     *  the entry/takeover signal are built from. Nullable (not NOT NULL) deliberately - see
+     *  requireFreshBreakout for why (adding a NOT NULL column via ddl-auto=update fails on
+     *  a table that already has rows). */
+    private String candleInterval;
+
     /** VWAP_CROSS (functional) or TRAILING_SL (reserved - not implemented yet). */
     @Column(nullable = false)
     private String exitMode = "VWAP_CROSS";
@@ -166,6 +172,8 @@ public class VwapBreakoutRun {
     public void setEntryWindowStart(String entryWindowStart) { this.entryWindowStart = entryWindowStart; }
     public String getEntryCutoff() { return entryCutoff; }
     public void setEntryCutoff(String entryCutoff) { this.entryCutoff = entryCutoff; }
+    public String getCandleInterval() { return candleInterval != null ? candleInterval : "ONE_MINUTE"; }
+    public void setCandleInterval(String candleInterval) { this.candleInterval = candleInterval; }
     public String getExitMode() { return exitMode; }
     public void setExitMode(String exitMode) { this.exitMode = exitMode; }
     public boolean isRequireFreshBreakout() { return Boolean.TRUE.equals(requireFreshBreakout); }

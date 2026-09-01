@@ -60,8 +60,9 @@ public class VwapBreakoutController {
     /** Live VWAP for a strike you've picked but haven't started a run for yet - lets the
      *  settings screen show it before you commit to Start. */
     @GetMapping("/vwap-preview")
-    public Map<String, Object> vwapPreview(@RequestParam String exchSeg, @RequestParam String token) {
-        return engine.getVwapPreview(exchSeg, token);
+    public Map<String, Object> vwapPreview(@RequestParam String exchSeg, @RequestParam String token,
+            @RequestParam(required = false) String candleInterval) {
+        return engine.getVwapPreview(exchSeg, token, candleInterval);
     }
 
     @GetMapping("/runs/{runId}/events")

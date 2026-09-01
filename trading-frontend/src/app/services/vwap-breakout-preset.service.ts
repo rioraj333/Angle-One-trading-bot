@@ -17,6 +17,7 @@ export interface VwapBreakoutPreset {
   maxTrades: number;
   entryWindowStart: string;
   entryCutoff: string;
+  candleInterval?: 'ONE_MINUTE' | 'THREE_MINUTE' | 'FIVE_MINUTE';
   exitMode: 'VWAP_CROSS' | 'TRAILING_SL';
   requireFreshBreakout?: boolean;
   mode: 'PAPER' | 'LIVE';
@@ -37,6 +38,7 @@ export interface SaveVwapBreakoutPresetRequest {
   maxTrades: number;
   entryWindowStart: string;
   entryCutoff: string;
+  candleInterval?: 'ONE_MINUTE' | 'THREE_MINUTE' | 'FIVE_MINUTE';
   exitMode: 'VWAP_CROSS' | 'TRAILING_SL';
   requireFreshBreakout?: boolean;
   mode: 'PAPER' | 'LIVE';

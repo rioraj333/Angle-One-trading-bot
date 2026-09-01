@@ -166,7 +166,7 @@ public class VwapBreakoutDeployScheduler {
                 preset.getIndexName(), String.valueOf(search.get("exchSeg")), preset.getQuantity(),
                 preset.getTargetPoints(), preset.getTargetType(), preset.getPnlTarget(), preset.getPnlTrailingStep(),
                 preset.getMaxDailyLoss(), preset.getMaxTrades(), preset.getEntryWindowStart(), preset.getEntryCutoff(),
-                preset.getExitMode(), preset.isRequireFreshBreakout(), preset.getMode(),
+                preset.getCandleInterval(), preset.getExitMode(), preset.isRequireFreshBreakout(), preset.getMode(),
                 ce != null ? ce.pick() : null, pe != null ? pe.pick() : null, preset.getId());
         try {
             Map<String, Object> result = engine.start(startRequest);

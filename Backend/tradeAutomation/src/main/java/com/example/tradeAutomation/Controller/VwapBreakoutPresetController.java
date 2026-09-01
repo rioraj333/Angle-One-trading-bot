@@ -26,6 +26,9 @@ import com.example.tradeAutomation.repository.VwapBreakoutPresetRepository;
 @RequestMapping("/api/vwap-breakout/presets")
 public class VwapBreakoutPresetController {
 
+    private static final java.util.Set<String> VALID_CANDLE_INTERVALS =
+            java.util.Set.of("ONE_MINUTE", "THREE_MINUTE", "FIVE_MINUTE");
+
     private final VwapBreakoutPresetRepository presetRepository;
     private final VwapBreakoutDeployScheduler deployScheduler;
 
@@ -38,8 +41,8 @@ public class VwapBreakoutPresetController {
     public record PresetRequest(
             String name, String indexName, Double premiumFrom, Double premiumTo,
             Integer quantity, Double targetPoints, String targetType, Double pnlTarget, Double pnlTrailingStep,
-            Double maxDailyLoss, Integer maxTrades, String entryWindowStart, String entryCutoff, String exitMode,
-            Boolean requireFreshBreakout, String mode) {}
+            Double maxDailyLoss, Integer maxTrades, String entryWindowStart, String entryCutoff,
+            String candleInterval, String exitMode, Boolean requireFreshBreakout, String mode) {}
 
     @GetMapping
     public List<VwapBreakoutPreset> list() {
@@ -123,6 +126,9 @@ public class VwapBreakoutPresetController {
         if (request.entryWindowStart() == null || request.entryCutoff() == null) {
             throw new IllegalArgumentException("entryWindowStart and entryCutoff are required.");
         }
+        if (request.candleInterval() != null && !VALID_CANDLE_INTERVALS.contains(request.candleInterval())) {
+            throw new IllegalArgumentException("candleInterval must be one of " + VALID_CANDLE_INTERVALS + ".");
+        }
     }
 
     private void applyFields(VwapBreakoutPreset preset, PresetRequest request) {
@@ -139,6 +145,7 @@ public class VwapBreakoutPresetController {
         preset.setMaxTrades(request.maxTrades());
         preset.setEntryWindowStart(request.entryWindowStart());
         preset.setEntryCutoff(request.entryCutoff());
+        preset.setCandleInterval(request.candleInterval() != null ? request.candleInterval() : "ONE_MINUTE");
         preset.setExitMode(request.exitMode() != null ? request.exitMode() : "VWAP_CROSS");
         preset.setRequireFreshBreakout(Boolean.TRUE.equals(request.requireFreshBreakout()));
         preset.setMode(request.mode());

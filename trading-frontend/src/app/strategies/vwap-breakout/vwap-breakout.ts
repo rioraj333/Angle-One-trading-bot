@@ -67,6 +67,14 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
   maxTrades = 5;
   entryWindowStart = '09:15';
   entryCutoff = '15:00';
+  /** Candle size used for VWAP/breakout checks - ONE_MINUTE (default), THREE_MINUTE, or
+   *  FIVE_MINUTE. Larger candles react slower to price but filter out more noise. */
+  candleInterval: 'ONE_MINUTE' | 'THREE_MINUTE' | 'FIVE_MINUTE' = 'ONE_MINUTE';
+  candleIntervalOptions: { value: 'ONE_MINUTE' | 'THREE_MINUTE' | 'FIVE_MINUTE'; label: string }[] = [
+    { value: 'ONE_MINUTE', label: '1 min' },
+    { value: 'THREE_MINUTE', label: '3 min' },
+    { value: 'FIVE_MINUTE', label: '5 min' },
+  ];
   exitMode: 'VWAP_CROSS' | 'TRAILING_SL' = 'VWAP_CROSS';
   /** Off by default. When on, a leg can't enter on whatever above/below-VWAP state
    *  already exists the moment it starts watching - it must first see a close at/below
@@ -339,6 +347,7 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
           if (state.maxTrades != null) this.maxTrades = state.maxTrades;
           if (state.entryWindowStart) this.entryWindowStart = state.entryWindowStart;
           if (state.entryCutoff) this.entryCutoff = state.entryCutoff;
+          if (state.candleInterval) this.candleInterval = state.candleInterval;
           if (state.exitMode) this.exitMode = state.exitMode as 'VWAP_CROSS' | 'TRAILING_SL';
           if (state.requireFreshBreakout !== undefined) this.requireFreshBreakout = state.requireFreshBreakout;
           if (state.mode) this.mode = state.mode;
@@ -482,7 +491,7 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
   }
 
   private refreshVwapPreview(side: 'CE' | 'PE', token: string): void {
-    this.vwapBreakoutService.getVwapPreview(this.resultsExchSeg(), token).subscribe({
+    this.vwapBreakoutService.getVwapPreview(this.resultsExchSeg(), token, this.candleInterval).subscribe({
       next: (r) => (side === 'CE' ? this.ceVwapPreview.set(r) : this.peVwapPreview.set(r)),
       error: () => {
         const failed: VwapPreview = { status: false, message: 'Failed to fetch VWAP.' };
@@ -537,6 +546,7 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
       maxTrades: this.maxTrades,
       entryWindowStart: this.entryWindowStart,
       entryCutoff: this.entryCutoff,
+      candleInterval: this.candleInterval,
       exitMode: this.exitMode,
       requireFreshBreakout: this.requireFreshBreakout,
       mode: this.mode,
@@ -671,6 +681,7 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
     this.maxTrades = preset.maxTrades;
     this.entryWindowStart = preset.entryWindowStart;
     this.entryCutoff = preset.entryCutoff;
+    this.candleInterval = preset.candleInterval ?? 'ONE_MINUTE';
     this.exitMode = preset.exitMode;
     this.requireFreshBreakout = preset.requireFreshBreakout ?? false;
     this.mode = preset.mode;
@@ -702,6 +713,7 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
       maxTrades: this.maxTrades,
       entryWindowStart: this.entryWindowStart,
       entryCutoff: this.entryCutoff,
+      candleInterval: this.candleInterval,
       exitMode: this.exitMode,
       requireFreshBreakout: this.requireFreshBreakout,
       mode: this.mode,

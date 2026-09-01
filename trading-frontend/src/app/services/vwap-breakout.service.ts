@@ -25,6 +25,8 @@ export interface VwapBreakoutStartRequest {
   maxTrades: number;
   entryWindowStart: string;
   entryCutoff: string;
+  /** ONE_MINUTE (default), THREE_MINUTE, or FIVE_MINUTE - candle size used for VWAP/breakout checks. */
+  candleInterval?: 'ONE_MINUTE' | 'THREE_MINUTE' | 'FIVE_MINUTE';
   exitMode: 'VWAP_CROSS' | 'TRAILING_SL';
   /** Off by default. When on, a leg can't enter on whatever above/below-VWAP state
    *  already exists the moment it starts watching - it must first see a close at/below
@@ -80,6 +82,7 @@ export interface VwapBreakoutState {
   entryCount?: number;
   entryWindowStart?: string;
   entryCutoff?: string;
+  candleInterval?: 'ONE_MINUTE' | 'THREE_MINUTE' | 'FIVE_MINUTE';
   exitMode?: string;
   requireFreshBreakout?: boolean;
   presetId?: number | null;
@@ -114,7 +117,9 @@ export class VwapBreakoutService {
     return this.http.get<{ time: string; type: string; message: string }[]>(`${this.apiUrl}/runs/${runId}/events`);
   }
 
-  getVwapPreview(exchSeg: string, token: string): Observable<VwapPreview> {
-    return this.http.get<VwapPreview>(`${this.apiUrl}/vwap-preview`, { params: { exchSeg, token } });
+  getVwapPreview(exchSeg: string, token: string, candleInterval?: string): Observable<VwapPreview> {
+    const params: Record<string, string> = { exchSeg, token };
+    if (candleInterval) params['candleInterval'] = candleInterval;
+    return this.http.get<VwapPreview>(`${this.apiUrl}/vwap-preview`, { params });
   }
 }

@@ -523,6 +523,14 @@
                           <input type="time" class="op-input" [(ngModel)]="vwapEditForm.entryCutoff" />
                         </div>
                         <div class="op-field">
+                          <label>Candle Timeframe</label>
+                          <select class="op-input" [(ngModel)]="vwapEditForm.candleInterval">
+                            <option value="ONE_MINUTE">1 min</option>
+                            <option value="THREE_MINUTE">3 min</option>
+                            <option value="FIVE_MINUTE">5 min</option>
+                          </select>
+                        </div>
+                        <div class="op-field">
                           <label>Target Type</label>
                           <div class="edit-toggle">
                             <button [class.active]="vwapEditForm.targetType === 'POINTS'" (click)="vwapEditForm.targetType = 'POINTS'">Points</button>
@@ -574,7 +582,7 @@
                   } @else {
                     <div class="preset-card-body">
                       <span>{{ p.indexName }} &middot; premium {{ p.premiumFrom }}&ndash;{{ p.premiumTo }}</span>
-                      <span>{{ p.entryWindowStart }}&ndash;{{ p.entryCutoff }} &middot; {{ p.quantity }} lot &middot; max {{ p.maxTrades }} trade(s)</span>
+                      <span>{{ p.entryWindowStart }}&ndash;{{ p.entryCutoff }} &middot; {{ p.quantity }} lot &middot; max {{ p.maxTrades }} trade(s) &middot; {{ p.candleInterval === 'THREE_MINUTE' ? '3min' : p.candleInterval === 'FIVE_MINUTE' ? '5min' : '1min' }} candles</span>
                       <span>
                         @if (p.targetType === 'PNL') {
                           target &#8377;{{ p.pnlTarget }}{{ p.pnlTrailingStep ? ' (trail ' + p.pnlTrailingStep + ')' : '' }}
