@@ -105,7 +105,7 @@
             <button [class.active]="targetType === 'POINTS'" (click)="targetType = 'POINTS'">Target (Points)</button>
             <button [class.active]="targetType === 'PNL'" (click)="targetType = 'PNL'">P&amp;L (&#8377;)</button>
           </div>
-          <p class="field-hint">Candle closes below VWAP to exit</p>
+          <p class="field-hint">No self stop-loss - a position only ends by hitting this target, or by the other side breaking out and taking the slot.</p>
         </div>
         <div class="form-row">
           <label class="checkbox-row">
@@ -290,8 +290,9 @@
 
     @if (mode === 'LIVE') {
       <div class="live-warning">
-        Live mode is ACTIVE — entries and exits (target or VWAP-cross) are real MARKET orders. There are no
-        resting broker orders here since VWAP moves every candle; every exit is placed the instant it's detected.
+        Live mode is ACTIVE — entries, target exits, and takeover switches are all real MARKET orders, placed the
+        instant each is detected. There's no self stop-loss on a held position - it only exits by hitting its
+        target, or by the other side breaking out and taking the slot (also a real market order).
       </div>
     }
 
@@ -501,7 +502,7 @@
     </div>
 
     @if (exitInfo(); as x) {
-      <div class="exit-msg" [class.target]="x.reason === 'Target hit'" [class.stoploss]="x.reason.includes('VWAP')">
+      <div class="exit-msg" [class.target]="x.reason === 'Target hit'" [class.switched]="x.reason.includes('Switched')">
         {{ x.side }} — {{ x.reason }} at {{ fmt(x.price) }}.
       </div>
     }

@@ -374,6 +374,14 @@
     border: 1px solid rgba(255,59,48,0.25);
     color: #ff6b6b;
   }
+
+  // Takeover switch - not inherently a win or a loss, so a neutral color rather than
+  // the red "stoploss" one (which no longer applies - there's no self stop-loss anymore).
+  &.switched {
+    background: rgba(79,70,229,0.12);
+    border: 1px solid rgba(79,70,229,0.3);
+    color: #a5b4fc;
+  }
 }
 
 .watch-layout { display: flex; flex-direction: column; gap: 18px; max-width: 900px; }

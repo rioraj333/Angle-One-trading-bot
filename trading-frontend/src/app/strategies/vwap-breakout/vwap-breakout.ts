@@ -52,15 +52,17 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
   quantityOptions = [1, 2, 3, 5, 10];
   targetPoints = 15;
   /** POINTS = today's per-trade points target (unchanged). PNL = individual trades still
-   *  resolve the same way (points target + VWAP-cross SL), but the session keeps cycling
-   *  trades regardless of win/loss until cumulative realized P&L hits pnlTarget (or its
-   *  trailing stop, if pnlTrailingStep is set) - see the engine's checkPnlGovernor(). */
+   *  resolve the same way (points target, or losing the slot to the other side breaking
+   *  out), but the session keeps cycling trades regardless of win/loss until cumulative
+   *  realized P&L hits pnlTarget (or its trailing stop, if pnlTrailingStep is set) - see
+   *  the engine's checkPnlGovernor(). */
   targetType: 'POINTS' | 'PNL' = 'POINTS';
   pnlTarget: number | null = 5000;
   pnlTrailingStep: number | null = null;
   /** Optional safety net, independent of targetType/maxTrades - stops the whole session the
-   *  instant cumulative realized loss for the day reaches this many rupees. Guards against a
-   *  choppy day burning through every configured trade in a string of small VWAP-cross losses. */
+   *  instant cumulative realized loss for the day reaches this many rupees. There's no self
+   *  stop-loss on a held position anymore (see the engine), so this is the only cap on how
+   *  much a bad run of takeovers can cost before the session shuts itself down. */
   maxDailyLoss: number | null = null;
   maxTrades = 5;
   entryWindowStart = '09:15';
@@ -195,7 +197,7 @@ export class VwapBreakoutComponent implements OnInit, OnDestroy {
     const s = this.runState();
     if (!s?.active) return '';
     if (s.status === 'DONE') return 'Session complete for the day.';
-    if (this.cePositionOpen() || this.pePositionOpen()) return 'In position - watching for target or VWAP-cross exit.';
+    if (this.cePositionOpen() || this.pePositionOpen()) return 'In position - watching for target, or the other side to take over.';
     return 'Monitoring - waiting for breakout above VWAP.';
   });
 

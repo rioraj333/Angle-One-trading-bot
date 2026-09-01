@@ -26,16 +26,23 @@ import com.example.tradeAutomation.repository.VwapBreakoutTradeRepository;
  * Server-side state machine for the VWAP Breakout strategy: NIFTY CE/PE near a chosen
  * premium, each with its own intraday VWAP (cumulative typical-price*volume / volume
  * from market open 09:15, from 1-minute candles). A candle CLOSING above a side's VWAP
- * is the entry trigger; a candle CLOSING below VWAP is the stop-loss/exit trigger (the
- * target, in contrast, is watched tick-by-tick for a fast reaction, same as
- * Breakout925). An SL exit can immediately reverse into the other side if that side is
- * already showing its own VWAP breakout at that moment - up to a configured max number
- * of entries per session (initial + reversals combined). A target hit ends the session
- * for the day, same philosophy as Breakout925.
+ * is the entry trigger. Only one side ever holds a position at a time.
  *
- * No resting bracket orders here (unlike Breakout925's SL) - VWAP moves every candle,
- * so it can never be a static broker order; every LIVE exit (target or VWAP-cross) is a
- * market order placed the instant the condition is detected.
+ * There is no self stop-loss - a held position never exits because its own candle
+ * closes back below its own VWAP. It only ever ends two ways: it hits its own points
+ * target (watched tick-by-tick for a fast reaction, same as Breakout925), or the OTHER
+ * side closes above ITS OWN VWAP while this one is still open, which force-closes the
+ * held position right then (regardless of its own P&L) and takes the slot instead - see
+ * takeoverLeg(). The side that just lost the slot goes back to watching too, so it can
+ * take the slot back later in the day - this can ping-pong back and forth all day, up
+ * to the configured max trades. A target hit ends the session for the day in POINTS
+ * mode (same philosophy as Breakout925); in PNL mode it just adds to a running session
+ * total - see handleExit(). If nothing else has closed a held position by the entry
+ * cutoff time, it gets force squared-off then too - see expirePastCutoff().
+ *
+ * No resting bracket orders here - every LIVE exit (target hit, a takeover, or the
+ * cutoff-time square-off) is a market order placed the instant the condition is
+ * detected.
  *
  * exitMode is stored per-run for forward compatibility with a future numeric
  * trailing-SL option, but only VWAP_CROSS is implemented - TRAILING_SL is rejected at
@@ -289,7 +296,8 @@ public class VwapBreakoutStrategyEngine {
             placeLiveOrder(run, "SELL", symbol, token, "Square-off (" + side + ")");
         }
 
-        closeLeg(run, side, reason, exitPrice);
+        double realizedPnl = closeLeg(run, side, reason, exitPrice);
+        run.setCumulativeRealizedPnl(run.getCumulativeRealizedPnl() + realizedPnl);
     }
 
     // ─── Time-driven clock: candle polling + LIVE order poll + cutoff handling ──
@@ -312,7 +320,7 @@ public class VwapBreakoutStrategyEngine {
             pollEntryFill(run, "PE");
         }
 
-        expireWatchingPastCutoff(run);
+        expirePastCutoff(run);
         maybeFinishRun(run);
     }
 
@@ -321,12 +329,22 @@ public class VwapBreakoutStrategyEngine {
         return LocalTime.of(Integer.parseInt(parts[0]), Integer.parseInt(parts[1]));
     }
 
-    /** Once the entry cutoff passes, a leg still sitting WATCHING can never enter - mark it
-     *  SKIPPED so maybeFinishRun can conclude the session instead of watching forever. */
-    private void expireWatchingPastCutoff(VwapBreakoutRun run) {
+    /**
+     * Once the entry cutoff passes: a leg still sitting WATCHING can never enter - mark it
+     * SKIPPED so maybeFinishRun can conclude the session instead of watching forever. A leg
+     * that's currently OPEN gets force-closed right here too - there's no self stop-loss
+     * anymore (see takeoverLeg()), so without this an open position could ride completely
+     * unprotected all the way to the exchange's own end-of-day handling, well past whatever
+     * cutoff time was configured.
+     */
+    private void expirePastCutoff(VwapBreakoutRun run) {
         if (LocalTime.now().isBefore(parseTime(run.getEntryCutoff()))) return;
         if ("WATCHING".equals(run.getCeLegStatus())) markSkipped(run, "CE", "past entry cutoff " + run.getEntryCutoff() + ".");
         if ("WATCHING".equals(run.getPeLegStatus())) markSkipped(run, "PE", "past entry cutoff " + run.getEntryCutoff() + ".");
+        if (isLegPositionOpen(run.getCeLegStatus())) forceExitLeg(run, "CE", "Entry cutoff square-off");
+        if (isLegPositionOpen(run.getPeLegStatus())) forceExitLeg(run, "PE", "Entry cutoff square-off");
+        run.setUpdatedAt(LocalDateTime.now());
+        runRepository.save(run);
     }
 
     // ─── Candle polling + VWAP ──────────────────────────────────────────────────
@@ -430,59 +448,93 @@ public class VwapBreakoutStrategyEngine {
         return result;
     }
 
+    /**
+     * There is no self stop-loss anymore - a position never exits because ITS OWN candle
+     * closes back below its own VWAP (that behavior was removed on purpose). A held
+     * position only ever ends two ways: it hits its own points target (handled by
+     * handleLegTick()/exitLiveOnTargetTick(), on live ticks), or the OTHER side closes
+     * above ITS OWN VWAP while this one is still open, which takes over the slot right
+     * here - see takeoverLeg(). So this method only has anything to do when the side
+     * whose candle just closed is still WATCHING (not holding a position).
+     */
     private synchronized void evaluateCandleClose(VwapBreakoutRun run, String side, double close, double vwap) {
         // Re-check under the lock: the run may have finished between pollCandles()
         // reading currentRun and this callback running.
         if (currentRun != run || "DONE".equals(run.getStatus())) return;
 
         String legStatus = "CE".equals(side) ? run.getCeLegStatus() : run.getPeLegStatus();
+        if (!"WATCHING".equals(legStatus)) return;
 
-        if ("WATCHING".equals(legStatus)) {
-            if (run.isRequireFreshBreakout()) {
-                if (close <= vwap) seenBelowVwap.put(side, true);
-                if (!Boolean.TRUE.equals(seenBelowVwap.get(side))) return; // hasn't seen a genuine reset point yet
-            }
-            if (close > vwap && canEnter(run, side)) {
-                enterLeg(run, side, close, vwap, false);
-            }
-            return;
+        if (run.isRequireFreshBreakout()) {
+            if (close <= vwap) seenBelowVwap.put(side, true);
+            if (!Boolean.TRUE.equals(seenBelowVwap.get(side))) return; // hasn't seen a genuine reset point yet
         }
+        if (close <= vwap) return;
 
-        if ("ENTRY_CONFIRMED".equals(legStatus) && close < vwap) {
-            if ("LIVE".equals(run.getMode())) {
-                exitLiveOnVwapCross(run, side, close);
-            } else {
-                handleExit(run, side, "VWAP cross (SL)", close);
-            }
+        String otherSide = "CE".equals(side) ? "PE" : "CE";
+        String otherLegStatus = "CE".equals(otherSide) ? run.getCeLegStatus() : run.getPeLegStatus();
+        if (isLegPositionOpen(otherLegStatus)) {
+            takeoverLeg(run, otherSide, side, close, vwap);
+        } else if (canEnter(run)) {
+            enterLeg(run, side, close, vwap, false);
         }
     }
 
-    /** LIVE-mode VWAP-cross SL exit - was missing entirely until this fix, meaning every
-     *  candle-close SL exit in LIVE mode only updated internal bookkeeping and never
-     *  placed the actual SELL, leaving the real broker position open (confirmed in
-     *  production: a CE VWAP-cross exit reversed into a PE entry while the CE position
-     *  sat open on the broker for several minutes until someone closed it manually).
-     *  Mirrors exitLiveOnTargetTick(): if the order fails, don't mark the leg closed -
-     *  it stays ENTRY_CONFIRMED and retries on the next candle close. */
-    private void exitLiveOnVwapCross(VwapBreakoutRun run, String side, double closePrice) {
-        String symbol = "CE".equals(side) ? run.getCeSymbol() : run.getPeSymbol();
-        String token = "CE".equals(side) ? run.getCeToken() : run.getPeToken();
-
-        String exitOrderId = placeLiveOrder(run, "SELL", symbol, token, "VWAP-cross exit (" + side + ")");
-        if (exitOrderId == null) {
-            log(run, "ORDER_FAILED", side + " VWAP-cross market exit failed - will retry on next candle.");
-            return;
-        }
-        handleExit(run, side, "VWAP cross (SL)", closePrice);
-    }
-
-    private boolean canEnter(VwapBreakoutRun run, String side) {
+    private boolean canEnter(VwapBreakoutRun run) {
         if (run.getEntryCount() >= run.getMaxTrades()) return false;
         if (LocalTime.now().isBefore(parseTime(run.getEntryWindowStart()))) return false;
         if (!LocalTime.now().isBefore(parseTime(run.getEntryCutoff()))) return false;
-        String otherSide = "CE".equals(side) ? "PE" : "CE";
-        String otherStatus = "CE".equals(otherSide) ? run.getCeLegStatus() : run.getPeLegStatus();
-        return !isLegPositionOpen(otherStatus); // only one side open at a time
+        return true;
+    }
+
+    /**
+     * The WATCHING side just closed above its own VWAP while the OTHER side already
+     * holds an open position - force-close that position right now, regardless of its
+     * own P&L, and take the new side instead. This is the core of the "whichever side is
+     * currently breaking out holds the slot" design: a position never gives up the slot
+     * on its own (no self stop-loss) - it only loses the slot when the other side proves
+     * it's the stronger one right now.
+     */
+    private void takeoverLeg(VwapBreakoutRun run, String openSide, String newSide, double newClose, double newVwap) {
+        String symbol = "CE".equals(openSide) ? run.getCeSymbol() : run.getPeSymbol();
+        String token = "CE".equals(openSide) ? run.getCeToken() : run.getPeToken();
+        Double exitPrice = liveLtp.get(token);
+        if (exitPrice == null) exitPrice = "CE".equals(openSide) ? run.getCeEntryPrice() : run.getPeEntryPrice();
+        if (exitPrice == null) exitPrice = 0.0;
+
+        if ("LIVE".equals(run.getMode())) {
+            String exitOrderId = placeLiveOrder(run, "SELL", symbol, token, "Switch exit (" + openSide + ")");
+            if (exitOrderId == null) {
+                log(run, "ORDER_FAILED", openSide + " switch-exit market order failed - will retry on next candle.");
+                return; // don't touch anything until we've actually confirmed the square-off
+            }
+        }
+
+        double realizedPnl = closeLeg(run, openSide, "Switched to " + newSide + " breakout", exitPrice);
+        run.setCumulativeRealizedPnl(run.getCumulativeRealizedPnl() + realizedPnl);
+        rearmLeg(run, openSide); // the side that just lost the slot can watch for its own comeback too
+
+        boolean pnlGovernorStop = "PNL".equals(run.getTargetType()) && checkPnlGovernor(run);
+        boolean lossCutoffStop = checkMaxDailyLoss(run);
+        if (pnlGovernorStop || lossCutoffStop || !canEnter(run)) {
+            String stopMsg = pnlGovernorStop
+                    ? "P&L governor stopped the session (cumulative Rs" + String.format("%.2f", run.getCumulativeRealizedPnl()) + ")."
+                    : lossCutoffStop
+                            ? "Max daily loss of Rs" + run.getMaxDailyLoss() + " hit (cumulative Rs" + String.format("%.2f", run.getCumulativeRealizedPnl()) + "), strategy stops here."
+                            : "all " + run.getMaxTrades() + " configured trade(s) used, strategy stops here.";
+            markSkipped(run, newSide, stopMsg);
+            markSkipped(run, openSide, stopMsg);
+        } else {
+            enterLeg(run, newSide, newClose, newVwap, true);
+        }
+
+        run.setLastExitSide(openSide);
+        run.setLastExitReason("Switched to " + newSide + " breakout");
+        run.setLastExitPrice(exitPrice);
+        run.setUpdatedAt(LocalDateTime.now());
+        runRepository.save(run);
+
+        maybeFinishRun(run);
     }
 
     // ─── Live tick handling (target watch + P&L display) ───────────────────────
@@ -638,19 +690,17 @@ public class VwapBreakoutStrategyEngine {
     }
 
     /**
-     * POINTS mode (default): a target hit ends the session for the day, same philosophy
-     * as Breakout925. A VWAP-cross SL exit instead frees up the strategy to keep going:
-     * if the other side is already showing its own VWAP breakout right now, flip into
-     * it immediately (a reversal); otherwise this side re-arms and goes back to WATCHING
-     * so either side can take the next signal - all the way up to the configured max
-     * trades.
+     * Only ever called for a target hit now (handleLegTick()/exitLiveOnTargetTick()) -
+     * there's no self stop-loss anymore, see evaluateCandleClose()/takeoverLeg().
      *
-     * PNL mode: individual trades still resolve exactly the same way (points target,
-     * VWAP-cross SL) - what changes is that a target hit no longer stops the session by
-     * itself. Every exit (win or loss) adds to a running cumulative realized P&L for the
-     * whole session, and the session only stops when that cumulative figure hits the
-     * configured rupee target (or its trailing stop, if one's set) - see
-     * checkPnlGovernor() - or max trades/cutoff is reached, same as before.
+     * POINTS mode (default): a target hit ends the session for the day, same philosophy
+     * as Breakout925.
+     *
+     * PNL mode: a target hit still resolves the individual trade the same way, but no
+     * longer stops the session by itself - every exit adds to a running cumulative
+     * realized P&L for the whole session, and the session only stops when that
+     * cumulative figure hits the configured rupee target (or its trailing stop, if one's
+     * set) - see checkPnlGovernor() - or max trades/cutoff/max daily loss is reached.
      */
     private synchronized void handleExit(VwapBreakoutRun run, String side, String reason, double exitPrice) {
         String legStatus = "CE".equals(side) ? run.getCeLegStatus() : run.getPeLegStatus();
@@ -676,17 +726,8 @@ public class VwapBreakoutStrategyEngine {
             } else {
                 continueOrReverse(run, side, otherSide, otherLegStatus);
             }
-        } else if ("Target hit".equals(reason)) {
+        } else { // POINTS mode: target hit always stops the whole session for the day
             if ("WATCHING".equals(otherLegStatus)) markSkipped(run, otherSide, side + " already hit target, strategy stops here.");
-        } else { // VWAP cross (SL)
-            if (lossCutoffStop || run.getEntryCount() >= run.getMaxTrades()) {
-                String stopMsg = lossCutoffStop
-                        ? "Max daily loss of Rs" + run.getMaxDailyLoss() + " hit (cumulative Rs" + String.format("%.2f", run.getCumulativeRealizedPnl()) + "), strategy stops here."
-                        : "all " + run.getMaxTrades() + " configured trade(s) used, strategy stops here.";
-                if ("WATCHING".equals(otherLegStatus)) markSkipped(run, otherSide, stopMsg);
-            } else {
-                continueOrReverse(run, side, otherSide, otherLegStatus);
-            }
         }
 
         run.setLastExitSide(side);
@@ -705,6 +746,9 @@ public class VwapBreakoutStrategyEngine {
         Double otherVwap = lastKnownVwap.get(otherSide);
         boolean otherToken = ("CE".equals(otherSide) ? run.getCeToken() : run.getPeToken()) != null;
         if (otherToken && "WATCHING".equals(otherLegStatus) && otherClose != null && otherVwap != null && otherClose > otherVwap) {
+            // side already closed (target hit) just above - rearm it too instead of
+            // leaving it permanently retired, so it can come back later in the day too.
+            rearmLeg(run, side);
             enterLeg(run, otherSide, otherClose, otherVwap, true);
         } else {
             rearmLeg(run, side);
