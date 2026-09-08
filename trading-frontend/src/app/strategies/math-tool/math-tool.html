@@ -1,0 +1,126 @@
+<div class="math-tool-page">
+  <header class="page-header">
+    <a routerLink="/strategies" class="back-link">&larr; Strategies</a>
+    <h1>Math Tool</h1>
+  </header>
+
+  <div class="top-row">
+    <div class="ohlc-panel">
+      <div class="panel-head">
+        <span class="panel-title">Previous Day OHLC</span>
+        <span class="panel-tag">Input</span>
+      </div>
+
+      <button class="btn-fetch" (click)="fetchPreviousDayOhlc()" [disabled]="loading()">
+        {{ loading() ? 'Fetching…' : 'Fetch OHLC (Previous Day)' }}
+      </button>
+
+      @if (fetchedDate()) {
+        <p class="fetched-date">Data for: {{ fetchedDate() }}</p>
+      }
+
+      @if (error()) {
+        <p class="error">{{ error() }}</p>
+      }
+
+      <div class="field-grid">
+        <label class="field">
+          <span class="field-label">Open</span>
+          <input type="number" [(ngModel)]="open" name="open" />
+        </label>
+        <label class="field">
+          <span class="field-label">High</span>
+          <input type="number" [(ngModel)]="high" name="high" />
+        </label>
+        <label class="field">
+          <span class="field-label">Low</span>
+          <input type="number" [(ngModel)]="low" name="low" />
+        </label>
+        <label class="field">
+          <span class="field-label">Close</span>
+          <input type="number" [(ngModel)]="close" name="close" />
+        </label>
+      </div>
+    </div>
+
+    @if (selectedStrike(); as strike) {
+      <div class="strike-panel">
+        <div class="panel-head">
+          <span class="panel-title">Strike Selection</span>
+          <span class="panel-tag">Auto</span>
+        </div>
+        <p class="strike-rule">Prev close {{ close }} &rarr; {{ strike }}&ndash;{{ strike + 99 }} band</p>
+        <div class="strike-legs">
+          <span class="leg ce">{{ strike }} CE</span>
+          <span class="leg pe">{{ strike }} PE</span>
+        </div>
+
+        <button class="btn-fetch-legs" (click)="fetchOptionLegCandles()" [disabled]="legsLoading()">
+          {{ legsLoading() ? 'Fetching…' : 'Fetch 5-Min Candle OHLC (CE & PE)' }}
+        </button>
+
+        @if (legsError()) {
+          <p class="error">{{ legsError() }}</p>
+        }
+      </div>
+    }
+  </div>
+
+  @if (ceLeg() || peLeg()) {
+    <div class="leg-panels">
+      @if (ceLeg(); as ce) {
+        <div class="leg-panel ce-panel">
+          <div class="leg-panel-head">
+            <span class="leg-badge ce-badge">CE</span>
+            <h2>Call Option</h2>
+          </div>
+          <div class="leg-field-grid">
+            <label class="field">
+              <span class="field-label">Open</span>
+              <input type="number" [ngModel]="ce.open" name="ceOpen" />
+            </label>
+            <label class="field">
+              <span class="field-label">High</span>
+              <input type="number" [ngModel]="ce.high" name="ceHigh" />
+            </label>
+            <label class="field">
+              <span class="field-label">Low</span>
+              <input type="number" [ngModel]="ce.low" name="ceLow" />
+            </label>
+            <label class="field">
+              <span class="field-label fixed-label">Close &#9733; (Fixed)</span>
+              <input type="number" [ngModel]="ce.close" name="ceClose" class="fixed-input" />
+            </label>
+          </div>
+        </div>
+      }
+
+      @if (peLeg(); as pe) {
+        <div class="leg-panel pe-panel">
+          <div class="leg-panel-head">
+            <span class="leg-badge pe-badge">PE</span>
+            <h2>Put Option</h2>
+          </div>
+          <div class="leg-field-grid">
+            <label class="field">
+              <span class="field-label">Open</span>
+              <input type="number" [ngModel]="pe.open" name="peOpen" />
+            </label>
+            <label class="field">
+              <span class="field-label">High</span>
+              <input type="number" [ngModel]="pe.high" name="peHigh" />
+            </label>
+            <label class="field">
+              <span class="field-label">Low</span>
+              <input type="number" [ngModel]="pe.low" name="peLow" />
+            </label>
+            <label class="field">
+              <span class="field-label fixed-label">Close &#9733; (Fixed)</span>
+              <input type="number" [ngModel]="pe.close" name="peClose" class="fixed-input" />
+            </label>
+          </div>
+        </div>
+      }
+    </div>
+  }
+</div>

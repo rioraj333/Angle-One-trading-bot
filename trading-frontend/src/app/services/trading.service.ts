@@ -81,6 +81,16 @@ export class TradingService {
     return this.http.get(`${this.apiUrl}/market/premium-search`, { params });
   }
 
+  getPreviousDayOhlc(exchange: string, token: string): Observable<any> {
+    const params = new HttpParams().set('exchange', exchange).set('token', token);
+    return this.http.get(`${this.apiUrl}/market/previous-day-ohlc`, { params });
+  }
+
+  getOptionFirstCandle(index: string, strike: number): Observable<any> {
+    const params = new HttpParams().set('index', index).set('strike', strike);
+    return this.http.get(`${this.apiUrl}/market/option-first-candle`, { params });
+  }
+
   getReferenceCandle(exchange: string, token: string, fromTime: string, toTime: string): Observable<any> {
     const params = new HttpParams()
       .set('exchange', exchange)

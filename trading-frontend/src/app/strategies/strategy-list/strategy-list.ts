@@ -32,6 +32,11 @@ export class StrategyListComponent {
       route: '/strategies/vwap-breakout',
     },
     {
+      name: 'Math Tool',
+      description: 'Maths-based strategy, built step by step. Previous-day OHLC fetch wired up so far — rest of the logic in progress.',
+      route: '/strategies/math-tool',
+    },
+    {
       name: 'Coming soon',
       description: 'Next strategy slot — not built yet.',
       route: null,

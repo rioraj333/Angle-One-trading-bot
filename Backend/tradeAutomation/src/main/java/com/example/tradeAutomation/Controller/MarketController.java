@@ -56,4 +56,17 @@ public class MarketController {
             @RequestParam(defaultValue = "09:20") String fromTime, @RequestParam(defaultValue = "09:25") String toTime) {
         return marketService.getReferenceCandle(exchange, token, fromTime, toTime);
     }
+
+    // Defaults to NIFTY 50 spot (NSE token 99926000), the same identifiers
+    // BreakoutStrategyEngine uses for its NIFTY spot LTP lookups.
+    @GetMapping("/previous-day-ohlc")
+    public Map<String, Object> previousDayOhlc(@RequestParam(defaultValue = "NSE") String exchange,
+            @RequestParam(defaultValue = "99926000") String token) {
+        return marketService.getPreviousDayOhlc(exchange, token);
+    }
+
+    @GetMapping("/option-first-candle")
+    public Map<String, Object> optionFirstCandle(@RequestParam(defaultValue = "NIFTY") String index, @RequestParam int strike) {
+        return premiumSearchService.getFirstFiveMinuteCandlesForStrike(index, strike);
+    }
 }

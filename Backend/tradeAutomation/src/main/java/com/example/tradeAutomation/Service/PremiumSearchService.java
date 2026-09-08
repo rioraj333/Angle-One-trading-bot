@@ -78,6 +78,62 @@ public class PremiumSearchService {
         }
     }
 
+    /**
+     * Looks up the CE and PE contracts at a specific strike (nearest expiry) and
+     * fetches each leg's first 5-minute candle (09:15-09:20) - the "fixed"
+     * reference OHLC a maths-based strategy reads its entry premium from.
+     */
+    public Map<String, Object> getFirstFiveMinuteCandlesForStrike(String indexName, int strike) {
+        Map<String, Object> result = new HashMap<>();
+        try {
+            List<InstrumentMasterService.NiftyOption> options = instrumentMasterService.getOptionsForIndex(indexName);
+            if (options.isEmpty()) {
+                result.put("status", false);
+                result.put("message", "No option chain data available for " + indexName);
+                return result;
+            }
+
+            LocalDate nearestExpiry = options.stream()
+                    .map(InstrumentMasterService.NiftyOption::expiry)
+                    .min(LocalDate::compareTo)
+                    .orElse(null);
+
+            List<InstrumentMasterService.NiftyOption> nearest = options.stream()
+                    .filter(o -> o.expiry().equals(nearestExpiry))
+                    .toList();
+
+            InstrumentMasterService.NiftyOption ce = nearest.stream()
+                    .filter(o -> "CE".equals(o.right()) && o.strike() == strike).findFirst().orElse(null);
+            InstrumentMasterService.NiftyOption pe = nearest.stream()
+                    .filter(o -> "PE".equals(o.right()) && o.strike() == strike).findFirst().orElse(null);
+
+            if (ce == null || pe == null) {
+                result.put("status", false);
+                result.put("message", "Strike " + strike + " not found in " + indexName + " chain.");
+                return result;
+            }
+
+            Map<String, Object> ceCandle = marketService.getFirstFiveMinuteCandle(ce.exchSeg(), ce.token());
+            ceCandle.put("symbol", ce.symbol());
+            ceCandle.put("token", ce.token());
+
+            Map<String, Object> peCandle = marketService.getFirstFiveMinuteCandle(pe.exchSeg(), pe.token());
+            peCandle.put("symbol", pe.symbol());
+            peCandle.put("token", pe.token());
+
+            result.put("status", true);
+            result.put("expiry", nearestExpiry.toString());
+            result.put("strike", strike);
+            result.put("ce", ceCandle);
+            result.put("pe", peCandle);
+            return result;
+        } catch (Exception e) {
+            result.put("status", false);
+            result.put("message", "Could not fetch option candles: " + e.getMessage());
+            return result;
+        }
+    }
+
     private List<StrikePremium> filterByRange(List<InstrumentMasterService.NiftyOption> opts,
                                                Map<String, Double> ltpByToken, double from, double to) {
         List<StrikePremium> matches = new ArrayList<>();
