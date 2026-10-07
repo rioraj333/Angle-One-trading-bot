@@ -1,2 +1,7 @@
 # Local Claude Code tooling settings - machine-specific, not shared
 .claude/
+
+# Python gap-open script - real credentials and local trade log
+python/config.json
+python/trades.csv
+python/__pycache__/

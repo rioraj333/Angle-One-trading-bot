@@ -1,0 +1,14 @@
+{
+  "api_key": "YOUR_SMARTAPI_API_KEY",
+  "client_id": "YOUR_ANGEL_ONE_CLIENT_CODE",
+  "mpin": "YOUR_ANGEL_ONE_MPIN",
+  "totp_secret": "YOUR_TOTP_SECRET_FROM_QR_SETUP",
+
+  "mode": "PAPER",
+  "lots": 1,
+  "target_points": 15,
+  "stop_loss_points": null,
+  "min_gap_points": 0,
+  "entry_time": "09:15:10",
+  "exit_time": "09:16:00"
+}
