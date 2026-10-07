@@ -6,9 +6,11 @@
 
   "mode": "PAPER",
   "lots": 1,
+  "entry_rule": "momentum",
   "target_points": 15,
   "stop_loss_points": null,
-  "min_gap_points": 0,
+  "min_move_points": 0,
+  "watch_start": "09:15:01",
   "entry_time": "09:15:10",
   "exit_time": "09:16:00"
 }

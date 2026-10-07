@@ -1,20 +1,24 @@
 """
-SENSEX Gap Open strategy - one quick trade right after market open.
+SENSEX opening-move strategy - one quick trade right after market open.
 
-  1. At ENTRY_TIME (09:15:10) get SENSEX live price and yesterday's close.
-  2. Gap up   (price > yesterday close) -> BUY ATM CE, nearest expiry.
-     Gap down (price < yesterday close) -> BUY ATM PE, nearest expiry.
-  3. Exit when the option premium reaches entry + TARGET_POINTS,
-     or at EXIT_TIME (09:16:00) - whichever comes first.
+  1. From WATCH_START (09:15:01) read SENSEX every second (+ ATM CE / PE premiums).
+  2. At ENTRY_TIME (09:15:10) decide the side:
+       entry_rule "momentum" (default): SENSEX rising over those 10 seconds -> BUY ATM CE,
+                                        falling -> BUY ATM PE.
+       entry_rule "gap":                SENSEX above yesterday's close -> CE, below -> PE.
+  3. Exit when the premium reaches entry + TARGET_POINTS, or at EXIT_TIME (09:16:00).
+     target_points null = no target, ride the move until 09:16:00.
+
+Every second is printed and saved to ticks_<date>.csv; each trade goes to trades.csv.
 
 Run:  python gap_open.py        (start it any time before 09:15)
 Settings + credentials live in config.json (copy config.example.json).
 
 Testing (always PAPER, no real orders):
-  python gap_open.py --simulate up     offline, fake prices: gap up -> CE -> target hit
-  python gap_open.py --simulate down   offline, fake prices: gap down -> PE -> time exit
-  python gap_open.py --now             live prices, any time in market hours: enter in 10s, exit 50s later
-  python gap_open.py --now --side PE   same, but force PE (or CE) whatever the gap is
+  python gap_open.py --simulate up     offline, fake prices: SENSEX rising   -> CE
+  python gap_open.py --simulate down   offline, fake prices: SENSEX falling  -> PE
+  python gap_open.py --now             live prices, any time in market hours: watch 10s, trade, exit 50s later
+  python gap_open.py --now --side PE   same, but force PE (or CE) whatever the move is
 """
 
 import argparse
@@ -50,7 +54,8 @@ def log(msg):
 
 
 def at_today(hhmmss):
-    t = datetime.strptime(hhmmss, "%H:%M:%S").time()
+    fmt = "%H:%M:%S" if hhmmss.count(":") == 2 else "%H:%M"
+    t = datetime.strptime(hhmmss, fmt).time()
     return datetime.combine(now().date(), t, tzinfo=IST)
 
 
@@ -73,6 +78,31 @@ def load_config():
     return cfg
 
 
+def num(x):
+    try:
+        return float(x)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+class TickLog:
+    """Appends one row per price read to ticks_<date>.csv so the first minute can be studied later."""
+
+    FIELDS = ["time", "phase", "sensex", "move", "gap", "ce_strike", "ce_ltp", "pe_strike", "pe_ltp", "position_ltp"]
+
+    def __init__(self, prefix):
+        self.path = HERE / f"{prefix}_{now():%Y-%m-%d}.csv"
+        self.new = not self.path.exists()
+
+    def write(self, **row):
+        with self.path.open("a", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=self.FIELDS)
+            if self.new:
+                w.writeheader()
+                self.new = False
+            w.writerow({"time": f"{now():%H:%M:%S.%f}"[:12], **row})
+
+
 # ─── broker ───────────────────────────────────────────────────────────────────
 
 def login(cfg):
@@ -85,24 +115,36 @@ def login(cfg):
     return api
 
 
-def quote(api, mode, exchange, token):
-    """Returns the first 'fetched' row of a market-data quote, or None."""
+def quote_many(api, mode, exchange, tokens):
+    """Returns {token: quote row} for one market-data call."""
     try:
-        resp = api.getMarketData(mode, {exchange: [token]})
+        resp = api.getMarketData(mode, {exchange: list(tokens)})
         rows = (resp or {}).get("data", {}).get("fetched") or []
-        return rows[0] if rows else None
+        return {str(r.get("symbolToken") or r.get("symboltoken")): r for r in rows}
     except Exception as e:
         log(f"Quote error: {e}")
+        return {}
+
+
+def sensex_quote(api):
+    """Returns (ltp, prev_close, exchFeedTime) or None."""
+    row = quote_many(api, "FULL", "BSE", [SENSEX_TOKEN]).get(SENSEX_TOKEN)
+    if not row or num(row.get("ltp")) <= 0 or num(row.get("close")) <= 0:
         return None
+    return num(row["ltp"]), num(row["close"]), str(row.get("exchFeedTime", ""))
+
+
+def option_ltps(api, opts):
+    """Returns {token: ltp} for options on the same exchange segment."""
+    opts = [o for o in opts if o]
+    if not opts:
+        return {}
+    rows = quote_many(api, "LTP", opts[0]["exch_seg"], [o["token"] for o in opts])
+    return {t: num(r.get("ltp")) for t, r in rows.items() if num(r.get("ltp")) > 0}
 
 
 def option_ltp(api, opt):
-    row = quote(api, "LTP", opt["exch_seg"], opt["token"])
-    try:
-        ltp = float(row["ltp"]) if row else 0
-    except (KeyError, ValueError, TypeError):
-        return None
-    return ltp if ltp > 0 else None
+    return option_ltps(api, [opt]).get(opt["token"])
 
 
 def load_sensex_options():
@@ -174,7 +216,7 @@ def wait_fill(api, order_id, timeout=15):
                     continue
                 status = str(o.get("status", "")).lower()
                 if "complete" in status:
-                    return float(o.get("averageprice") or 0) or None
+                    return num(o.get("averageprice")) or None
                 if "rejected" in status or "cancelled" in status:
                     log(f"Order {order_id} {status}: {o.get('text')}")
                     return None
@@ -197,7 +239,7 @@ def buy(api, cfg, opt):
 def sell(api, cfg, opt, last_ltp):
     if cfg["mode"] == "PAPER":
         return option_ltp(api, opt) or last_ltp
-    for attempt in range(5):
+    for _ in range(5):
         order_id = place_market(api, cfg, opt, "SELL")
         if order_id:
             return wait_fill(api, order_id) or last_ltp
@@ -208,6 +250,11 @@ def sell(api, cfg, opt, last_ltp):
 
 def save_trade(row):
     path = HERE / "trades.csv"
+    if path.exists():
+        with path.open() as f:
+            header = f.readline().strip().split(",")
+        if header != list(row.keys()):   # columns changed in a newer version - keep the old file aside
+            path.rename(HERE / f"trades_old_{now():%Y%m%d_%H%M%S}.csv")
     new = not path.exists()
     with path.open("a", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(row.keys()))
@@ -219,38 +266,47 @@ def save_trade(row):
 # ─── offline simulator (--simulate) ───────────────────────────────────────────
 
 class FakeApi:
-    """Stands in for SmartConnect: fixed SENSEX gap, scripted option premium."""
+    """Stands in for SmartConnect. SENSEX opens 150 pts above yesterday's close, then
+    trends up ('up') or down ('down') 3 pts/s; ATM premiums move ~0.5 x SENSEX."""
 
-    def __init__(self, scenario):
-        self.spot = 80150.0 if scenario == "up" else 79850.0
-        # up: premium climbs 2 pts/s -> target hit. down: premium drifts around entry -> time exit.
-        self.prices = ([200 + 2 * i for i in range(100)] if scenario == "up"
-                       else [200 + (i % 7) - 3 for i in range(1000)])
-        self.calls = 0
+    def __init__(self, scenario, start):
+        self.dir = 1 if scenario == "up" else -1
+        self.start = start
+
+    def spot(self):
+        t = (now() - self.start).total_seconds()
+        return round(80150 + self.dir * 3 * t, 2)
 
     def getMarketData(self, mode, exchange_tokens):
-        if "BSE" in exchange_tokens:
+        exch, tokens = next(iter(exchange_tokens.items()))
+        if exch == "BSE":
             return {"status": True, "data": {"fetched": [{
-                "ltp": self.spot, "close": 80000.0, "exchFeedTime": now().strftime("%d-%b-%Y %H:%M:%S")}]}}
-        price = self.prices[min(self.calls // 2, len(self.prices) - 1)]   # 2 polls per second
-        self.calls += 1
-        return {"status": True, "data": {"fetched": [{"ltp": price}]}}
+                "symbolToken": SENSEX_TOKEN, "ltp": self.spot(), "close": 80000.0,
+                "exchFeedTime": now().strftime("%d-%b-%Y %H:%M:%S")}]}}
+        move = self.spot() - 80150
+        rows = []
+        for tok in tokens:
+            premium = 200 + 0.5 * move if tok.endswith("CE") else 200 - 0.5 * move
+            rows.append({"symbolToken": tok, "ltp": round(max(premium, 0.05), 2)})
+        return {"status": True, "data": {"fetched": rows}}
 
 
 def fake_options():
     expiry = now().date()
     return [{"symbol": f"SENSEX{k}{side}", "token": f"{k}{side}", "strike": k, "side": side,
              "expiry": expiry, "exch_seg": "BFO"}
-            for k in range(79500, 80600, 100) for side in ("CE", "PE")]
+            for k in range(79500, 80800, 100) for side in ("CE", "PE")]
 
 
 def parse_args():
-    p = argparse.ArgumentParser(description="SENSEX Gap Open strategy")
+    p = argparse.ArgumentParser(description="SENSEX opening-move strategy")
     p.add_argument("--simulate", choices=["up", "down"], help="offline test with fake prices (no login)")
-    p.add_argument("--now", action="store_true", help="paper test now: enter in 10s, exit 50s later")
+    p.add_argument("--now", action="store_true", help="paper test now: watch 10s, trade, exit 50s later")
     p.add_argument("--side", choices=["CE", "PE"], help="force CE or PE (test only)")
     return p.parse_args()
 
+
+# ─── main ─────────────────────────────────────────────────────────────────────
 
 def main():
     args = parse_args()
@@ -258,21 +314,29 @@ def main():
     if args.simulate:
         cfg = {"mode": "PAPER", "lots": 1, "target_points": 15}
         try:
-            cfg.update({k: v for k, v in load_config().items() if k in ("lots", "target_points", "stop_loss_points")})
+            cfg.update({k: v for k, v in load_config().items()
+                        if k in ("lots", "target_points", "stop_loss_points", "entry_rule", "min_move_points")})
         except SystemExit:
             pass   # no config.json needed for the offline simulation
     else:
         cfg = load_config()
     if testing:
         cfg["mode"] = "PAPER"   # test runs never place real orders
-    target_pts = float(cfg.get("target_points", 15))
-    sl_pts = cfg.get("stop_loss_points")          # null = no price stop, time exit only
-    min_gap = float(cfg.get("min_gap_points", 0))
+
+    rule = cfg.get("entry_rule", "momentum").lower()
+    if rule not in ("momentum", "gap"):
+        sys.exit('entry_rule must be "momentum" or "gap"')
+    target_pts = cfg.get("target_points", 15)       # null = no target, exit at exit_time
+    sl_pts = cfg.get("stop_loss_points")            # null = no price stop
+    min_move = num(cfg.get("min_move_points", cfg.get("min_gap_points", 0)))
     qty = cfg["lots"] * SENSEX_LOT_SIZE
+
     if args.simulate or args.now:
-        entry_at = now().replace(microsecond=0) + timedelta(seconds=10)
+        watch_at = now().replace(microsecond=0) + timedelta(seconds=2)
+        entry_at = watch_at + timedelta(seconds=10)
         exit_at = entry_at + timedelta(seconds=50)
     else:
+        watch_at = at_today(cfg.get("watch_start", "09:15:01"))
         entry_at = at_today(cfg.get("entry_time", "09:15:10"))
         exit_at = at_today(cfg.get("exit_time", "09:16:00"))
 
@@ -281,33 +345,51 @@ def main():
     if now() >= exit_at:
         sys.exit(f"Already past {exit_at:%H:%M:%S} - run it before market open tomorrow.")
     if testing:
-        log("*** TEST RUN - PAPER only" + (f", simulated gap {args.simulate}" if args.simulate else ", live prices")
+        log("*** TEST RUN - PAPER only" + (f", simulated SENSEX {args.simulate}" if args.simulate else ", live prices")
             + (f", forced {args.side}" if args.side else "") + " ***")
-
-    log(f"Mode {cfg['mode']} | {cfg['lots']} lot(s) = {qty} qty | target +{target_pts} | "
-        f"SL {('-' + str(sl_pts)) if sl_pts else 'none'} | entry {entry_at:%H:%M:%S} | exit {exit_at:%H:%M:%S}")
+    log(f"Mode {cfg['mode']} | rule {rule} | {cfg['lots']} lot(s) = {qty} qty | "
+        f"target {('+' + str(target_pts)) if target_pts else 'none (ride to exit)'} | "
+        f"SL {('-' + str(sl_pts)) if sl_pts else 'none'} | watch {watch_at:%H:%M:%S} | "
+        f"entry {entry_at:%H:%M:%S} | exit {exit_at:%H:%M:%S}")
 
     if args.simulate:
-        api, options = FakeApi(args.simulate), fake_options()
+        api, options = FakeApi(args.simulate, watch_at), fake_options()
+        ticks = TickLog("ticks_sim")
     else:
         api = login(cfg)
         options = load_sensex_options()
+        ticks = TickLog("ticks")
 
-    log(f"Waiting for {entry_at:%H:%M:%S}...")
-    sleep_until(entry_at)
+    log(f"Waiting for {watch_at:%H:%M:%S}...")
+    sleep_until(watch_at)
 
-    # 1. Gap
-    row = None
+    # 1. Watch SENSEX (+ ATM CE/PE) every second until entry time
+    first = last = prev_close = None
+    feed_time = ""
+    watch_ce = watch_pe = None
+    next_read = watch_at
     while now() < min(entry_at + timedelta(seconds=ENTRY_RETRY_SECONDS), exit_at):
-        row = quote(api, "FULL", "BSE", SENSEX_TOKEN)
-        if row and float(row.get("ltp") or 0) > 0 and float(row.get("close") or 0) > 0:
+        if now() >= entry_at and last is not None:
             break
-        log("Could not read SENSEX price - retrying")
-        time.sleep(1)
-    else:
+        q = sensex_quote(api)
+        if q:
+            last, prev_close, feed_time = q
+            if first is None:
+                first = last
+                watch_ce, watch_pe = pick_atm(options, first, "CE"), pick_atm(options, first, "PE")
+            prem = option_ltps(api, [watch_ce, watch_pe])
+            ce, pe = prem.get(watch_ce["token"]), prem.get(watch_pe["token"])
+            log(f"SENSEX {last:.2f} | move {last - first:+.2f} | gap {last - prev_close:+.2f} | "
+                f"CE {watch_ce['strike']} {ce or '-'} | PE {watch_pe['strike']} {pe or '-'}")
+            ticks.write(phase="watch", sensex=last, move=round(last - first, 2), gap=round(last - prev_close, 2),
+                        ce_strike=watch_ce["strike"], ce_ltp=ce, pe_strike=watch_pe["strike"], pe_ltp=pe)
+        else:
+            log("Could not read SENSEX price - retrying")
+        next_read += timedelta(seconds=1)
+        sleep_until(next_read)
+    if last is None:
         sys.exit("No SENSEX price - no trade today.")
 
-    feed_time = str(row.get("exchFeedTime", ""))
     try:
         feed_date = datetime.strptime(feed_time, "%d-%b-%Y %H:%M:%S").date()
     except ValueError:
@@ -315,33 +397,41 @@ def main():
     if feed_date and feed_date != now().date():
         sys.exit(f"SENSEX last update was {feed_time} - market not open today (holiday?). No trade.")
 
-    spot, prev_close = float(row["ltp"]), float(row["close"])
-    gap = spot - prev_close
-    log(f"SENSEX {spot:.2f} vs yesterday close {prev_close:.2f} -> gap {gap:+.2f} pts")
-    if not args.side and (gap == 0 or abs(gap) < min_gap):
-        sys.exit(f"Gap smaller than minimum {min_gap} - no trade today.")
+    # 2. Decide side
+    move, gap = last - first, last - prev_close
+    signal = move if rule == "momentum" else gap
+    log(f"Decision ({rule}): SENSEX {first:.2f} -> {last:.2f}, move {move:+.2f} | "
+        f"yesterday close {prev_close:.2f}, gap {gap:+.2f}")
+    if not args.side and (signal == 0 or abs(signal) < min_move):
+        sys.exit(f"{rule} {signal:+.2f} smaller than minimum {min_move} - no trade today.")
+    side = args.side or ("CE" if signal > 0 else "PE")
 
-    # 2. Entry
-    side = args.side or ("CE" if gap > 0 else "PE")
-    opt = pick_atm(options, spot, side)
-    log(f"{'Gap UP' if gap > 0 else 'Gap DOWN'}{' (side forced)' if args.side else ''} -> BUY {side} {opt['strike']} ({opt['symbol']}, expiry {opt['expiry']})")
+    # 3. Entry
+    opt = pick_atm(options, last, side)
+    log(f"{'UP' if signal > 0 else 'DOWN'}{' (side forced)' if args.side else ''} -> BUY {side} "
+        f"{opt['strike']} ({opt['symbol']}, expiry {opt['expiry']})")
     entry_price = buy(api, cfg, opt)
     if not entry_price:
         sys.exit("Entry failed - no trade today. Check the broker app for any open position.")
     entry_time = now()
-    target = entry_price + target_pts
-    stop = entry_price - float(sl_pts) if sl_pts else None
-    log(f"BOUGHT at {entry_price:.2f} | target {target:.2f}" + (f" | SL {stop:.2f}" if stop else "")
-        + f" | time exit {exit_at:%H:%M:%S}")
+    target = entry_price + num(target_pts) if target_pts else None
+    stop = entry_price - num(sl_pts) if sl_pts else None
+    log(f"BOUGHT at {entry_price:.2f} | target {f'{target:.2f}' if target else 'none'}"
+        + (f" | SL {stop:.2f}" if stop else "") + f" | time exit {exit_at:%H:%M:%S}")
 
-    # 3. Watch until target / SL / exit time
-    reason, last = "Time exit", entry_price
+    # 4. Watch until target / SL / exit time
+    reason, last_ltp, last_print = f"Time exit {exit_at:%H:%M:%S}", entry_price, 0.0
     try:
         while now() < exit_at:
             ltp = option_ltp(api, opt)
             if ltp:
-                last = ltp
-                if ltp >= target:
+                last_ltp = ltp
+                if time.time() - last_print >= 1:
+                    last_print = time.time()
+                    log(f"{side} {opt['strike']} {ltp:.2f} | {ltp - entry_price:+.2f} pts | "
+                        f"P&L {(ltp - entry_price) * qty:+.2f}")
+                    ticks.write(phase="trade", position_ltp=ltp)
+                if target and ltp >= target:
                     reason = "Target hit"
                     break
                 if stop is not None and ltp <= stop:
@@ -351,18 +441,19 @@ def main():
     except KeyboardInterrupt:
         reason = "Manual stop (Ctrl+C)"
 
-    log(f"{reason} - LTP {last:.2f}, selling")
-    exit_price = sell(api, cfg, opt, last)
+    log(f"{reason} - LTP {last_ltp:.2f}, selling")
+    exit_price = sell(api, cfg, opt, last_ltp)
     pnl = (exit_price - entry_price) * qty
     log(f"SOLD at {exit_price:.2f} | P&L {pnl:+.2f} ({exit_price - entry_price:+.2f} pts x {qty})")
 
     save_trade({
-        "date": now().date().isoformat(), "mode": "SIMULATED" if args.simulate else cfg["mode"], "prev_close": prev_close, "spot": spot,
-        "gap": round(gap, 2), "side": side, "strike": opt["strike"], "symbol": opt["symbol"],
-        "qty": qty, "entry_time": f"{entry_time:%H:%M:%S}", "entry": entry_price,
+        "date": now().date().isoformat(), "mode": "SIMULATED" if args.simulate else cfg["mode"],
+        "rule": rule, "prev_close": prev_close, "sensex_first": first, "sensex_entry": last,
+        "move": round(move, 2), "gap": round(gap, 2), "side": side, "strike": opt["strike"],
+        "symbol": opt["symbol"], "qty": qty, "entry_time": f"{entry_time:%H:%M:%S}", "entry": entry_price,
         "exit_time": f"{now():%H:%M:%S}", "exit": exit_price, "reason": reason, "pnl": round(pnl, 2),
     })
-    log("Saved to trades.csv. Done for today.")
+    log(f"Saved to trades.csv (every second in {ticks.path.name}). Done for today.")
 
 
 if __name__ == "__main__":
