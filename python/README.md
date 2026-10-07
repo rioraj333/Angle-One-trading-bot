@@ -68,3 +68,22 @@ Logs in, watches SENSEX for 10 seconds, buys, and exits 50 seconds later (or at 
 warning: square off manually in the Angel One app.
 
 Run it in **PAPER** for a few days and compare the log with the Angel One app before switching to `LIVE`.
+
+## Backtest (approximate)
+
+```bash
+python backtest.py                    # downloads last 12 months of SENSEX 1-minute candles, prints a report
+python backtest.py --months 24 --target 20 --min-move 30
+python backtest.py --csv sensex_1min_XXXX.csv --target 0     # re-run on saved data, no target
+```
+
+Uses your `config.json` login. Saves `sensex_1min_*.csv` (data), `backtest_report_*.txt` and `backtest_trades_*.csv`.
+
+It is an **approximation**: Angel One history is 1-minute candles only and expired options can't be
+downloaded, so it uses SENSEX points x delta (default 0.5) as the option premium, plus slippage and charges.
+
+- **GAP rule**: exact signal (9:15 open vs yesterday's close), first minute as the trade.
+- **MOMENTUM (1 min later)**: the 10-second move can't be seen in 1-minute data, so this tests the same
+  idea one minute later (9:15 candle direction -> trade the 9:16 minute).
+
+The real 10-second momentum rule can only be measured from the `ticks_*.csv` files `gap_open.py` records each day.

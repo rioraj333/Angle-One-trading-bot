@@ -5,4 +5,6 @@
 python/config.json
 python/trades*.csv
 python/ticks*.csv
+python/backtest_*
+python/sensex_1min_*.csv
 python/__pycache__/
