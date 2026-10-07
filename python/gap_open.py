@@ -9,8 +9,15 @@ SENSEX Gap Open strategy - one quick trade right after market open.
 
 Run:  python gap_open.py        (start it any time before 09:15)
 Settings + credentials live in config.json (copy config.example.json).
+
+Testing (always PAPER, no real orders):
+  python gap_open.py --simulate up     offline, fake prices: gap up -> CE -> target hit
+  python gap_open.py --simulate down   offline, fake prices: gap down -> PE -> time exit
+  python gap_open.py --now             live prices, any time in market hours: enter in 10s, exit 50s later
+  python gap_open.py --now --side PE   same, but force PE (or CE) whatever the gap is
 """
 
+import argparse
 import csv
 import json
 import sys
@@ -209,25 +216,82 @@ def save_trade(row):
         w.writerow(row)
 
 
+# ─── offline simulator (--simulate) ───────────────────────────────────────────
+
+class FakeApi:
+    """Stands in for SmartConnect: fixed SENSEX gap, scripted option premium."""
+
+    def __init__(self, scenario):
+        self.spot = 80150.0 if scenario == "up" else 79850.0
+        # up: premium climbs 2 pts/s -> target hit. down: premium drifts around entry -> time exit.
+        self.prices = ([200 + 2 * i for i in range(100)] if scenario == "up"
+                       else [200 + (i % 7) - 3 for i in range(1000)])
+        self.calls = 0
+
+    def getMarketData(self, mode, exchange_tokens):
+        if "BSE" in exchange_tokens:
+            return {"status": True, "data": {"fetched": [{
+                "ltp": self.spot, "close": 80000.0, "exchFeedTime": now().strftime("%d-%b-%Y %H:%M:%S")}]}}
+        price = self.prices[min(self.calls // 2, len(self.prices) - 1)]   # 2 polls per second
+        self.calls += 1
+        return {"status": True, "data": {"fetched": [{"ltp": price}]}}
+
+
+def fake_options():
+    expiry = now().date()
+    return [{"symbol": f"SENSEX{k}{side}", "token": f"{k}{side}", "strike": k, "side": side,
+             "expiry": expiry, "exch_seg": "BFO"}
+            for k in range(79500, 80600, 100) for side in ("CE", "PE")]
+
+
+def parse_args():
+    p = argparse.ArgumentParser(description="SENSEX Gap Open strategy")
+    p.add_argument("--simulate", choices=["up", "down"], help="offline test with fake prices (no login)")
+    p.add_argument("--now", action="store_true", help="paper test now: enter in 10s, exit 50s later")
+    p.add_argument("--side", choices=["CE", "PE"], help="force CE or PE (test only)")
+    return p.parse_args()
+
+
 def main():
-    cfg = load_config()
+    args = parse_args()
+    testing = bool(args.simulate or args.now or args.side)
+    if args.simulate:
+        cfg = {"mode": "PAPER", "lots": 1, "target_points": 15}
+        try:
+            cfg.update({k: v for k, v in load_config().items() if k in ("lots", "target_points", "stop_loss_points")})
+        except SystemExit:
+            pass   # no config.json needed for the offline simulation
+    else:
+        cfg = load_config()
+    if testing:
+        cfg["mode"] = "PAPER"   # test runs never place real orders
     target_pts = float(cfg.get("target_points", 15))
     sl_pts = cfg.get("stop_loss_points")          # null = no price stop, time exit only
     min_gap = float(cfg.get("min_gap_points", 0))
-    entry_at = at_today(cfg.get("entry_time", "09:15:10"))
-    exit_at = at_today(cfg.get("exit_time", "09:16:00"))
     qty = cfg["lots"] * SENSEX_LOT_SIZE
+    if args.simulate or args.now:
+        entry_at = now().replace(microsecond=0) + timedelta(seconds=10)
+        exit_at = entry_at + timedelta(seconds=50)
+    else:
+        entry_at = at_today(cfg.get("entry_time", "09:15:10"))
+        exit_at = at_today(cfg.get("exit_time", "09:16:00"))
 
-    if now().weekday() >= 5:
+    if not args.simulate and now().weekday() >= 5:
         sys.exit("Weekend - market closed.")
     if now() >= exit_at:
         sys.exit(f"Already past {exit_at:%H:%M:%S} - run it before market open tomorrow.")
+    if testing:
+        log("*** TEST RUN - PAPER only" + (f", simulated gap {args.simulate}" if args.simulate else ", live prices")
+            + (f", forced {args.side}" if args.side else "") + " ***")
 
     log(f"Mode {cfg['mode']} | {cfg['lots']} lot(s) = {qty} qty | target +{target_pts} | "
         f"SL {('-' + str(sl_pts)) if sl_pts else 'none'} | entry {entry_at:%H:%M:%S} | exit {exit_at:%H:%M:%S}")
 
-    api = login(cfg)
-    options = load_sensex_options()
+    if args.simulate:
+        api, options = FakeApi(args.simulate), fake_options()
+    else:
+        api = login(cfg)
+        options = load_sensex_options()
 
     log(f"Waiting for {entry_at:%H:%M:%S}...")
     sleep_until(entry_at)
@@ -254,13 +318,13 @@ def main():
     spot, prev_close = float(row["ltp"]), float(row["close"])
     gap = spot - prev_close
     log(f"SENSEX {spot:.2f} vs yesterday close {prev_close:.2f} -> gap {gap:+.2f} pts")
-    if gap == 0 or abs(gap) < min_gap:
+    if not args.side and (gap == 0 or abs(gap) < min_gap):
         sys.exit(f"Gap smaller than minimum {min_gap} - no trade today.")
 
     # 2. Entry
-    side = "CE" if gap > 0 else "PE"
+    side = args.side or ("CE" if gap > 0 else "PE")
     opt = pick_atm(options, spot, side)
-    log(f"{'Gap UP' if gap > 0 else 'Gap DOWN'} -> BUY {side} {opt['strike']} ({opt['symbol']}, expiry {opt['expiry']})")
+    log(f"{'Gap UP' if gap > 0 else 'Gap DOWN'}{' (side forced)' if args.side else ''} -> BUY {side} {opt['strike']} ({opt['symbol']}, expiry {opt['expiry']})")
     entry_price = buy(api, cfg, opt)
     if not entry_price:
         sys.exit("Entry failed - no trade today. Check the broker app for any open position.")
@@ -293,7 +357,7 @@ def main():
     log(f"SOLD at {exit_price:.2f} | P&L {pnl:+.2f} ({exit_price - entry_price:+.2f} pts x {qty})")
 
     save_trade({
-        "date": now().date().isoformat(), "mode": cfg["mode"], "prev_close": prev_close, "spot": spot,
+        "date": now().date().isoformat(), "mode": "SIMULATED" if args.simulate else cfg["mode"], "prev_close": prev_close, "spot": spot,
         "gap": round(gap, 2), "side": side, "strike": opt["strike"], "symbol": opt["symbol"],
         "qty": qty, "entry_time": f"{entry_time:%H:%M:%S}", "entry": entry_price,
         "exit_time": f"{now():%H:%M:%S}", "exit": exit_price, "reason": reason, "pnl": round(pnl, 2),

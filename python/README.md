@@ -28,6 +28,28 @@ python gap_open.py
 
 It logs in, downloads the option list, waits until 09:15:10, trades, and adds a row to `trades.csv`.
 
+## Testing (always PAPER, never places real orders)
+
+**1. Offline simulation - works any time, even at night / weekends, no login needed**
+
+```bash
+python gap_open.py --simulate up     # gap up   -> buys CE -> premium rises -> Target hit (~7s)
+python gap_open.py --simulate down   # gap down -> buys PE -> premium flat  -> Time exit (~60s)
+```
+
+Uses fake prices - checks the logic only (which side, target, time exit, trades.csv).
+
+**2. Live paper test - during market hours (09:15-15:30), real prices from Angel One**
+
+```bash
+python gap_open.py --now             # side from the real gap right now
+python gap_open.py --now --side CE   # force CE
+python gap_open.py --now --side PE   # force PE
+```
+
+Logs in, enters 10 seconds after you start it, and exits 50 seconds later (or at +15).
+"Gap" here is current SENSEX vs yesterday's close, so `--side` lets you test both CE and PE on the same day.
+
 ## Settings (`config.json`)
 
 | key | default | meaning |
