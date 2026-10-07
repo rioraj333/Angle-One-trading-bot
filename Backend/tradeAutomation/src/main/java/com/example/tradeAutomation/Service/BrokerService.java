@@ -39,15 +39,18 @@ public class BrokerService {
     private final SessionStore sessionStore;
     private final Breakout925StrategyEngine breakout925StrategyEngine;
     private final VwapBreakoutStrategyEngine vwapBreakoutStrategyEngine;
+    private final ScalpingStrategyEngine scalpingStrategyEngine;
 
     public BrokerService(SmartApiClient smartApiClient, BrokerSessionRepository sessionRepository,
                           SessionStore sessionStore, Breakout925StrategyEngine breakout925StrategyEngine,
-                          VwapBreakoutStrategyEngine vwapBreakoutStrategyEngine) {
+                          VwapBreakoutStrategyEngine vwapBreakoutStrategyEngine,
+                          ScalpingStrategyEngine scalpingStrategyEngine) {
         this.smartApiClient = smartApiClient;
         this.sessionRepository = sessionRepository;
         this.sessionStore = sessionStore;
         this.breakout925StrategyEngine = breakout925StrategyEngine;
         this.vwapBreakoutStrategyEngine = vwapBreakoutStrategyEngine;
+        this.scalpingStrategyEngine = scalpingStrategyEngine;
     }
 
     /**
@@ -111,6 +114,7 @@ public class BrokerService {
         sessionStore.setCurrentSession(session);
         breakout925StrategyEngine.onFreshLogin();
         vwapBreakoutStrategyEngine.onFreshLogin();
+        scalpingStrategyEngine.onFreshLogin();
 
         Map<String, Object> data = new HashMap<>();
         data.put("clientId", clientId);

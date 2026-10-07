@@ -1,0 +1,98 @@
+<div class="scalping-page">
+  <header class="page-header">
+    <a routerLink="/strategies" class="back-link">&larr; Strategies</a>
+    <h1>Scalping</h1>
+    <span class="sub">SENSEX &middot; strike from 9:15 open price &middot; every tick</span>
+  </header>
+
+  <div class="status-bar">
+    <span class="mode-pill" [class.live]="state()?.status === 'STREAMING'">{{ state()?.status ?? '…' }}</span>
+    @if (!running()) {
+      <button class="btn-primary" [disabled]="busy()" (click)="start()">Start</button>
+    } @else {
+      <button class="btn-primary stop" [disabled]="busy()" (click)="stop()">Stop</button>
+    }
+  </div>
+
+  @if (errorMsg()) {
+    <div class="error-box">{{ errorMsg() }}</div>
+  }
+  @if (state()?.message) {
+    <div class="info-box">{{ state()!.message }}</div>
+  }
+  @if (state()?.status === 'WAITING_OPEN') {
+    <div class="info-box">Waiting for market open (09:15). The strike is picked from SENSEX's opening price, then ticks start.</div>
+  }
+
+  <div class="cards">
+    <div class="card">
+      <div class="card-label">SENSEX open</div>
+      <div class="card-value">{{ state()?.openPrice != null ? (state()!.openPrice | number: '1.2-2') : '—' }}</div>
+      @if (gap() != null) {
+        <div class="card-sub" [class.up]="gap()! > 0" [class.down]="gap()! < 0">
+          gap {{ gap()! > 0 ? '+' : '' }}{{ gap() | number: '1.2-2' }} vs yesterday {{ state()!.prevClose | number: '1.2-2' }}
+        </div>
+      }
+    </div>
+    <div class="card">
+      <div class="card-label">SENSEX live</div>
+      <div class="card-value">{{ state()?.sensexLtp != null ? (state()!.sensexLtp | number: '1.2-2') : '—' }}</div>
+      <div class="card-sub">strike {{ state()?.strike ?? '—' }} &middot; expiry {{ state()?.expiry ?? '—' }}</div>
+    </div>
+    <div class="card ce">
+      <div class="card-label">CE {{ state()?.strike ?? '' }}</div>
+      <div class="card-value">{{ state()?.ceLtp != null ? (state()!.ceLtp | number: '1.2-2') : '—' }}</div>
+      <div class="card-sub">{{ state()?.ceSymbol ?? '—' }}</div>
+    </div>
+    <div class="card pe">
+      <div class="card-label">PE {{ state()?.strike ?? '' }}</div>
+      <div class="card-value">{{ state()?.peLtp != null ? (state()!.peLtp | number: '1.2-2') : '—' }}</div>
+      <div class="card-sub">{{ state()?.peSymbol ?? '—' }}</div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-header">
+      <h2>Live ticks <span class="count">{{ state()?.tickCount ?? 0 }} total</span></h2>
+      <div class="filters">
+        @for (f of ['ALL', 'SENSEX', 'CE', 'PE']; track f) {
+          <button class="chip" [class.active]="filter() === f" (click)="setFilter($any(f))">{{ f }}</button>
+        }
+      </div>
+    </div>
+    <div class="tick-table-wrap">
+      <table class="tick-table">
+        <thead>
+          <tr><th>Time</th><th>Exchange time</th><th>Instrument</th><th class="num">Price</th><th class="num">Change</th></tr>
+        </thead>
+        <tbody>
+          @for (t of visibleTicks(); track t.seq) {
+            <tr [class]="rowClass(t)">
+              <td>{{ t.time }}</td>
+              <td class="muted">{{ t.exchangeTime || '—' }}</td>
+              <td class="inst">{{ t.instrument }}</td>
+              <td class="num">{{ t.ltp | number: '1.2-2' }}</td>
+              <td class="num" [class.up]="(t.change ?? 0) > 0" [class.down]="(t.change ?? 0) < 0">
+                {{ t.change == null ? '' : (t.change > 0 ? '+' : '') + (t.change | number: '1.2-2') }}
+              </td>
+            </tr>
+          } @empty {
+            <tr><td colspan="5" class="empty">No ticks yet. Press Start before 09:15 (or any time in market hours).</td></tr>
+          }
+        </tbody>
+      </table>
+    </div>
+    <p class="hint">Showing the latest 500 ticks. Every tick is also saved on the backend in <code>scalping-ticks/ticks_&lt;date&gt;.csv</code>.</p>
+  </div>
+
+  @if (state()?.events?.length) {
+    <div class="panel">
+      <h2>Activity log</h2>
+      <div class="log">
+        @for (e of state()!.events!; track $index) {
+          <div class="log-row"><span class="log-time">{{ fmtEventTime(e.time) }}</span><span>{{ e.message }}</span></div>
+        }
+      </div>
+    </div>
+  }
+</div>

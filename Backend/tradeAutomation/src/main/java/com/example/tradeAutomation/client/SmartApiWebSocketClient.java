@@ -30,6 +30,7 @@ public class SmartApiWebSocketClient {
     public static final int MODE_LTP = 1;
     public static final int EXCHANGE_NSE_CM = 1;
     public static final int EXCHANGE_NSE_FO = 2;
+    public static final int EXCHANGE_BSE_CM = 3; // BSE cash segment - SENSEX index token lives here
     // Angel One SmartAPI WebSocket 2.0 exchangeType enum - unverified against a live
     // SENSEX subscribe, confirm by comparing a live SENSEX tick against a manual
     // MarketService.getLtp() call for the same token before relying on it.

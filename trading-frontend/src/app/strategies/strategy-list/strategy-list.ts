@@ -32,6 +32,11 @@ export class StrategyListComponent {
       route: '/strategies/vwap-breakout',
     },
     {
+      name: 'Scalping',
+      description: 'SENSEX. Strike picked from the 9:15 open price; streams every live tick of SENSEX + that CE/PE.',
+      route: '/strategies/scalping',
+    },
+    {
       name: 'Coming soon',
       description: 'Next strategy slot — not built yet.',
       route: null,

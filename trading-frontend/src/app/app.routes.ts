@@ -6,6 +6,7 @@ import { BreakoutComponent } from './strategies/breakout/breakout';
 import { BreakoutHistoryComponent } from './strategies/breakout-history/breakout-history';
 import { Breakout925Component } from './strategies/breakout925/breakout925';
 import { VwapBreakoutComponent } from './strategies/vwap-breakout/vwap-breakout';
+import { ScalpingComponent } from './strategies/scalping/scalping';
 import { authGuard } from './guards/auth.guard';
 import { canDeactivateGuard } from './guards/can-deactivate.guard';
 
@@ -28,5 +29,6 @@ export const routes: Routes = [
     canActivate: [authGuard],
     canDeactivate: [canDeactivateGuard],
   },
+  { path: 'strategies/scalping', component: ScalpingComponent, canActivate: [authGuard] },
   { path: '**', redirectTo: 'login' },
 ];

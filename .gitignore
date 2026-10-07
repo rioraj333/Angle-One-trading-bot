@@ -8,3 +8,6 @@ python/ticks*.csv
 python/backtest_*
 python/sensex_1min_*.csv
 python/__pycache__/
+
+# Scalping strategy per-day tick recordings (written by the backend)
+scalping-ticks/
