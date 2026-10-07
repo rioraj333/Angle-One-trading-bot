@@ -1,11 +1,14 @@
 """
 SENSEX opening-move strategy - one quick trade right after market open.
 
-  1. From WATCH_START (09:15:01) read SENSEX every second (+ ATM CE / PE premiums).
-  2. At ENTRY_TIME (09:15:10) decide the side:
-       entry_rule "momentum" (default): SENSEX rising over those 10 seconds -> BUY ATM CE,
-                                        falling -> BUY ATM PE.
-       entry_rule "gap":                SENSEX above yesterday's close -> CE, below -> PE.
+  1. From WATCH_START read SENSEX every second (+ ATM CE / PE premiums).
+  2. At ENTRY_TIME decide the side:
+       entry_rule "premium":  watch the ATM CE and PE premiums 09:15:10 -> 09:15:20.
+                              Only CE rose -> BUY that CE, only PE rose -> BUY that PE.
+                              Both rose, both fell or no change -> skip the day.
+       entry_rule "momentum": SENSEX rising 09:15:01 -> 09:15:10 -> BUY ATM CE,
+                              falling -> BUY ATM PE.
+       entry_rule "gap":      SENSEX above yesterday's close -> CE, below -> PE.
   3. Exit when the premium reaches entry + TARGET_POINTS, or at EXIT_TIME (09:16:00).
      target_points null = no target, ride the move until 09:16:00.
 
@@ -41,6 +44,11 @@ SENSEX_TOKEN = "99919000"   # SENSEX index on BSE
 SENSEX_LOT_SIZE = 20
 ENTRY_RETRY_SECONDS = 20    # keep retrying the entry this long if the broker API hiccups
 POLL_SECONDS = 0.5          # how often the option price is checked while in the trade
+DEFAULT_TIMES = {           # watch_start, entry_time when config.json doesn't set them
+    "premium": ("09:15:10", "09:15:20"),
+    "momentum": ("09:15:01", "09:15:10"),
+    "gap": ("09:15:01", "09:15:10"),
+}
 
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
@@ -76,6 +84,15 @@ def load_config():
     if cfg["mode"] not in ("PAPER", "LIVE"):
         sys.exit('mode must be "PAPER" or "LIVE"')
     return cfg
+
+
+def premium_side(ce_change, pe_change, min_move=0):
+    """premium rule: the side whose premium alone rose by more than min_move, else None (skip)."""
+    if ce_change > 0 and pe_change <= 0 and ce_change >= min_move:
+        return "CE"
+    if pe_change > 0 and ce_change <= 0 and pe_change >= min_move:
+        return "PE"
+    return None
 
 
 def num(x):
@@ -324,8 +341,8 @@ def main():
         cfg["mode"] = "PAPER"   # test runs never place real orders
 
     rule = cfg.get("entry_rule", "momentum").lower()
-    if rule not in ("momentum", "gap"):
-        sys.exit('entry_rule must be "momentum" or "gap"')
+    if rule not in DEFAULT_TIMES:
+        sys.exit('entry_rule must be "premium", "momentum" or "gap"')
     target_pts = cfg.get("target_points", 15)       # null = no target, exit at exit_time
     sl_pts = cfg.get("stop_loss_points")            # null = no price stop
     min_move = num(cfg.get("min_move_points", cfg.get("min_gap_points", 0)))
@@ -334,10 +351,10 @@ def main():
     if args.simulate or args.now:
         watch_at = now().replace(microsecond=0) + timedelta(seconds=2)
         entry_at = watch_at + timedelta(seconds=10)
-        exit_at = entry_at + timedelta(seconds=50)
+        exit_at = entry_at + timedelta(seconds=40 if rule == "premium" else 50)
     else:
-        watch_at = at_today(cfg.get("watch_start", "09:15:01"))
-        entry_at = at_today(cfg.get("entry_time", "09:15:10"))
+        watch_at = at_today(cfg.get("watch_start", DEFAULT_TIMES[rule][0]))
+        entry_at = at_today(cfg.get("entry_time", DEFAULT_TIMES[rule][1]))
         exit_at = at_today(cfg.get("exit_time", "09:16:00"))
 
     if not args.simulate and now().weekday() >= 5:
@@ -367,6 +384,7 @@ def main():
     first = last = prev_close = None
     feed_time = ""
     watch_ce = watch_pe = None
+    ce_first = pe_first = ce_last = pe_last = None
     next_read = watch_at
     while now() < min(entry_at + timedelta(seconds=ENTRY_RETRY_SECONDS), exit_at):
         if now() >= entry_at and last is not None:
@@ -379,6 +397,10 @@ def main():
                 watch_ce, watch_pe = pick_atm(options, first, "CE"), pick_atm(options, first, "PE")
             prem = option_ltps(api, [watch_ce, watch_pe])
             ce, pe = prem.get(watch_ce["token"]), prem.get(watch_pe["token"])
+            if ce and pe:
+                if ce_first is None:
+                    ce_first, pe_first = ce, pe
+                ce_last, pe_last = ce, pe
             log(f"SENSEX {last:.2f} | move {last - first:+.2f} | gap {last - prev_close:+.2f} | "
                 f"CE {watch_ce['strike']} {ce or '-'} | PE {watch_pe['strike']} {pe or '-'}")
             ticks.write(phase="watch", sensex=last, move=round(last - first, 2), gap=round(last - prev_close, 2),
@@ -399,16 +421,29 @@ def main():
 
     # 2. Decide side
     move, gap = last - first, last - prev_close
-    signal = move if rule == "momentum" else gap
     log(f"Decision ({rule}): SENSEX {first:.2f} -> {last:.2f}, move {move:+.2f} | "
         f"yesterday close {prev_close:.2f}, gap {gap:+.2f}")
-    if not args.side and (signal == 0 or abs(signal) < min_move):
-        sys.exit(f"{rule} {signal:+.2f} smaller than minimum {min_move} - no trade today.")
-    side = args.side or ("CE" if signal > 0 else "PE")
+    ce_move = pe_move = None
+    if rule == "premium":
+        if ce_first is None:
+            sys.exit("No CE / PE premium during the watch - no trade today.")
+        ce_move, pe_move = round(ce_last - ce_first, 2), round(pe_last - pe_first, 2)
+        log(f"CE {watch_ce['strike']} {ce_first:.2f} -> {ce_last:.2f} ({ce_move:+.2f}) | "
+            f"PE {watch_pe['strike']} {pe_first:.2f} -> {pe_last:.2f} ({pe_move:+.2f})")
+        side = args.side or premium_side(ce_move, pe_move, min_move)
+        if not side:
+            sys.exit("Not exactly one premium rising (both up, both down or no change) - no trade today.")
+        direction = "RISING"
+    else:
+        signal = move if rule == "momentum" else gap
+        if not args.side and (signal == 0 or abs(signal) < min_move):
+            sys.exit(f"{rule} {signal:+.2f} smaller than minimum {min_move} - no trade today.")
+        side = args.side or ("CE" if signal > 0 else "PE")
+        direction = "UP" if signal > 0 else "DOWN"
 
-    # 3. Entry
-    opt = pick_atm(options, last, side)
-    log(f"{'UP' if signal > 0 else 'DOWN'}{' (side forced)' if args.side else ''} -> BUY {side} "
+    # 3. Entry - the premium rule buys the strike it watched, the others the ATM at entry
+    opt = (watch_ce if side == "CE" else watch_pe) if rule == "premium" else pick_atm(options, last, side)
+    log(f"{direction}{' (side forced)' if args.side else ''} -> BUY {side} "
         f"{opt['strike']} ({opt['symbol']}, expiry {opt['expiry']})")
     entry_price = buy(api, cfg, opt)
     if not entry_price:
@@ -449,7 +484,8 @@ def main():
     save_trade({
         "date": now().date().isoformat(), "mode": "SIMULATED" if args.simulate else cfg["mode"],
         "rule": rule, "prev_close": prev_close, "sensex_first": first, "sensex_entry": last,
-        "move": round(move, 2), "gap": round(gap, 2), "side": side, "strike": opt["strike"],
+        "move": round(move, 2), "gap": round(gap, 2),
+        "ce_move": ce_move, "pe_move": pe_move, "side": side, "strike": opt["strike"],
         "symbol": opt["symbol"], "qty": qty, "entry_time": f"{entry_time:%H:%M:%S}", "entry": entry_price,
         "exit_time": f"{now():%H:%M:%S}", "exit": exit_price, "reason": reason, "pnl": round(pnl, 2),
     })
