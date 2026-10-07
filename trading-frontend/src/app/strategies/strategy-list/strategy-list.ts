@@ -33,7 +33,7 @@ export class StrategyListComponent {
     },
     {
       name: 'Scalping',
-      description: 'SENSEX. Strike picked from the 9:15 open price; streams every live tick of SENSEX + that CE/PE.',
+      description: 'SENSEX. Auto-starts 9:14; strike from the 9:15 open price; records every tick of SENSEX + that CE/PE 9:15–9:16.',
       route: '/strategies/scalping',
     },
     {

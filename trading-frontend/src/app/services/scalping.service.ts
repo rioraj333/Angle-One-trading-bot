@@ -19,6 +19,10 @@ export interface ScalpingState {
   status: 'IDLE' | 'WAITING_OPEN' | 'STREAMING' | 'STOPPED' | 'ERROR';
   active: boolean;
   message?: string | null;
+  /** True when the backend starts the run by itself at 09:14 on weekdays. */
+  autoStart?: boolean;
+  /** Recording window, e.g. "09:15-09:16". */
+  window?: string;
   runDate?: string | null;
   openPrice?: number | null;
   prevClose?: number | null;

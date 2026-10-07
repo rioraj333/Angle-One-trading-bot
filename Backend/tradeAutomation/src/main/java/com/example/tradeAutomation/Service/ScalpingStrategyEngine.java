@@ -31,8 +31,10 @@ import com.example.tradeAutomation.client.SmartApiWebSocketClient;
 /**
  * Scalping strategy - step 1: live tick monitor (no orders yet).
  *
- * At market open (09:15:00) it reads SENSEX's opening price, picks the strike nearest
- * to it (nearest expiry), and streams every live tick of SENSEX, that CE and that PE.
+ * Starts by itself at 09:14 every weekday (scalping.autostart.enabled, default true),
+ * or via Start on the page. At market open (09:15:00) it reads SENSEX's opening price,
+ * picks the strike nearest to it (nearest expiry), streams every live tick of SENSEX,
+ * that CE and that PE, and stops by itself at 09:16:00.
  * Each tick is printed to the console, kept in memory for the UI (last MAX_TICKS),
  * and appended to scalping-ticks/ticks_<date>.csv for later analysis.
  *
@@ -44,7 +46,8 @@ public class ScalpingStrategyEngine {
 
     private static final ZoneId IST = ZoneId.of("Asia/Kolkata");
     private static final LocalTime MARKET_OPEN = LocalTime.of(9, 15);
-    private static final LocalTime MARKET_CLOSE = LocalTime.of(15, 30);
+    /** Recording stops (and the run ends) at this time. */
+    private static final LocalTime RECORD_UNTIL = LocalTime.of(9, 16);
     private static final String WS_CORRELATION_ID = "scalping";
     private static final String SENSEX_TOKEN = "99919000";
     private static final int MAX_TICKS = 2000;
@@ -56,6 +59,9 @@ public class ScalpingStrategyEngine {
 
     @Value("${angleone.api.key}")
     private String apiKey;
+
+    @Value("${scalping.autostart.enabled:true}")
+    private boolean autoStartEnabled;
 
     private final SmartApiWebSocketClient wsClient;
     private final MarketService marketService;
@@ -75,6 +81,8 @@ public class ScalpingStrategyEngine {
     private volatile InstrumentMasterService.NiftyOption ce;
     private volatile InstrumentMasterService.NiftyOption pe;
     private volatile long lastOpenAttempt = 0;
+    /** Day a run was last started (manually or automatically) - the 09:14 auto-start runs once a day. */
+    private volatile LocalDate lastStartDate;
 
     private final Deque<TickRow> ticks = new ArrayDeque<>();
     private final Map<String, Double> lastLtp = new HashMap<>(); // instrument -> ltp
@@ -102,14 +110,17 @@ public class ScalpingStrategyEngine {
             throw new IllegalStateException("Not logged in to Angel One. Log in first.");
         }
         LocalTime now = LocalTime.now(IST);
-        if (!now.isBefore(MARKET_CLOSE)) {
-            throw new IllegalStateException("Market is closed for today - start it before 15:30.");
+        if (!now.isBefore(RECORD_UNTIL)) {
+            throw new IllegalStateException("Today's recording window " + MARKET_OPEN + "-" + RECORD_UNTIL
+                    + " is over. It starts again automatically at 09:14 on the next trading day.");
         }
 
         resetRun();
         runDate = LocalDate.now(IST);
+        lastStartDate = runDate;
         status = "WAITING_OPEN";
-        event("STARTED", "Started. At " + MARKET_OPEN + " SENSEX open price picks the strike, then every tick is streamed.");
+        event("STARTED", "Started. At " + MARKET_OPEN + " SENSEX open price picks the strike, then every tick is "
+                + "recorded until " + RECORD_UNTIL + ".");
         if (instrumentMasterService.getOptionsForIndex("SENSEX").isEmpty()) {
             event("WARNING", "SENSEX option chain not loaded yet - will retry at open.");
         }
@@ -159,6 +170,30 @@ public class ScalpingStrategyEngine {
         closeTickFile();
     }
 
+    // ─── Daily auto-start ────────────────────────────────────────────────────────
+
+    /**
+     * Fires every 10s from 09:14:00 to 09:15:50 on weekdays; starts the day's run on the
+     * first attempt that finds a broker session (the backend's own auto-login may still
+     * be finishing at 09:14). Runs at most once a day, so a manual Stop isn't undone.
+     */
+    @Scheduled(cron = "*/10 14-15 9 * * MON-FRI", zone = "Asia/Kolkata")
+    public void autoStart() {
+        if (!autoStartEnabled) return;
+        LocalDate today = LocalDate.now(IST);
+        if (today.equals(lastStartDate) || "WAITING_OPEN".equals(status) || "STREAMING".equals(status)) return;
+        if (sessionStore.getCurrentSession().isEmpty()) {
+            System.out.println("[SCALPING] Auto-start: not logged in to Angel One yet - retrying in 10s.");
+            return;
+        }
+        try {
+            start();
+            event("AUTO_START", "Started automatically at " + LocalTime.now(IST).withNano(0) + ".");
+        } catch (IllegalStateException e) {
+            System.out.println("[SCALPING] Auto-start skipped: " + e.getMessage());
+        }
+    }
+
     // ─── Clock: wait for open, then resolve strike ───────────────────────────────
 
     @Scheduled(fixedRate = 500)
@@ -166,12 +201,13 @@ public class ScalpingStrategyEngine {
         if (!"WAITING_OPEN".equals(status) && !"STREAMING".equals(status)) return;
         synchronized (this) {
             LocalTime now = LocalTime.now(IST);
-            if (!LocalDate.now(IST).equals(runDate) || !now.isBefore(MARKET_CLOSE)) {
+            if (!LocalDate.now(IST).equals(runDate) || !now.isBefore(RECORD_UNTIL)) {
                 if ("WAITING_OPEN".equals(status) || "STREAMING".equals(status)) {
                     unsubscribe();
                     closeTickFile();
                     status = "STOPPED";
-                    event("MARKET_CLOSED", "Market closed - stopped. " + tickCount + " ticks recorded.");
+                    event("DONE", RECORD_UNTIL + " reached - stopped. " + tickCount + " ticks recorded"
+                            + (tickCount > 0 ? " (saved to scalping-ticks/ticks_" + runDate + ".csv)." : "."));
                 }
                 return;
             }
@@ -396,6 +432,8 @@ public class ScalpingStrategyEngine {
         state.put("status", status);
         state.put("active", "WAITING_OPEN".equals(status) || "STREAMING".equals(status));
         state.put("message", message);
+        state.put("autoStart", autoStartEnabled);
+        state.put("window", MARKET_OPEN + "-" + RECORD_UNTIL);
         state.put("runDate", runDate != null ? runDate.toString() : null);
         state.put("openPrice", openPrice);
         state.put("prevClose", prevClose);
