@@ -24,6 +24,7 @@ Run (uses the same config.json as gap_open.py):
 import argparse
 import csv
 import json
+import os
 import statistics
 import sys
 import time
@@ -43,7 +44,14 @@ def download(months):
     import pyotp
     from SmartApi import SmartConnect
 
-    cfg = json.loads((HERE / "config.json").read_text())
+    # config.json on your PC, or environment variables (e.g. a cloud session's settings)
+    if (HERE / "config.json").exists():
+        cfg = json.loads((HERE / "config.json").read_text())
+    else:
+        env = {k: os.environ.get(f"ANGEL_{k.upper()}") for k in ("api_key", "client_id", "mpin", "totp_secret")}
+        if not all(env.values()):
+            sys.exit("No config.json and ANGEL_API_KEY / ANGEL_CLIENT_ID / ANGEL_MPIN / ANGEL_TOTP_SECRET not set.")
+        cfg = env
     api = SmartConnect(api_key=cfg["api_key"])
     resp = api.generateSession(cfg["client_id"], cfg["mpin"], pyotp.TOTP(cfg["totp_secret"]).now())
     if not resp or not resp.get("status"):
